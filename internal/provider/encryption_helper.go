@@ -1,4 +1,4 @@
-package delinea
+package provider
 
 import (
 	"crypto/aes"
