@@ -5,8 +5,8 @@ import (
 	"log"
 	"os"
 
-	"github.com/DelineaXPM/terraform-provider-tss/v2/delinea"
 	"github.com/hashicorp/terraform-plugin-framework/providerserver"
+	"github.com/just_shrubs/terraform-provider-tss/v2/internal/provider"
 )
 
 func main() {
@@ -22,12 +22,12 @@ func main() {
 
 		switch action {
 		case "encrypt":
-			err := delinea.EncryptFile(passphrase, stateFile)
+			err := provider.EncryptFile(passphrase, stateFile)
 			if err != nil {
 				log.Printf("[DEBUG] Error encrypting file: %v\n", err)
 			}
 		case "decrypt":
-			err := delinea.DecryptFile(passphrase, stateFile)
+			err := provider.DecryptFile(passphrase, stateFile)
 			if err != nil {
 				log.Printf("[DEBUG] Error decrypting file: %v\n", err)
 			}
@@ -37,7 +37,7 @@ func main() {
 		return
 	}
 
-	providerserver.Serve(context.Background(), delinea.New, providerserver.ServeOpts{
+	providerserver.Serve(context.Background(), provider.New, providerserver.ServeOpts{
 		Address: "registry.terraform.io/DelineaXPM/tss",
 	})
 }
