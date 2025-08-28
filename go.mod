@@ -1,4 +1,4 @@
-module github.com/DelineaXPM/terraform-provider-tss/v2
+module github.com/just_shrubs/terraform-provider-tss/v2
 
 go 1.24.1
 
