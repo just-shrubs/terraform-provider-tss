@@ -17,54 +17,52 @@ description: |-
 
 ### Required
 
-- `fields` (Block List, Min: 1) the fields of the secret (see [below for nested schema](#nestedblock--fields))
-- `folderid` (Number) the foleder id of the secret
-- `name` (String) the name of the secret
-- `secrettemplateid` (Number) the id of the template in which secret will create
-- `siteid` (Number) the id of the site where secret will create
+- `folderid` (String) The folder ID of the secret.
+- `name` (String) The name of the secret.
+- `secrettemplateid` (String) The template ID in which the secret will be created.
+- `siteid` (String) The site ID where the secret will be created.
 
 ### Optional
 
-- `active` (Boolean) the secret is enabled or disabled
-- `autochangenabled` (Boolean) the autochange is enabled or disabled
-- `checkedout` (Boolean) the secret is checked out or not
-- `checkoutchangepasswordenabled` (Boolean) the checkout change password enabled or disabled
-- `checkoutenabled` (Boolean) the secret checkout enabled or disabled
-- `checkoutintervalminutes` (Number) the secret checkout interval minutes
-- `delayindexing` (Boolean) the delay indexing is enabled or disabled
-- `enableinheritpermissions` (Boolean) the inherit permission is enabled or disabled
-- `enableinheritsecretpolicy` (Boolean) the inherit secret policy is enabled or disabled
-- `launcherconnectassecretid` (Number) the id of the launcher connect as secret
-- `passwordtypewebscriptid` (Number) the id of the password type webscript
-- `proxyenabled` (Boolean) the proxy enabled or disabled
-- `requirescomment` (Boolean) the comment is required or not
-- `secretpolicyid` (Number) the id of the secret policy
-- `sessionrecordingenabled` (Boolean) the session recording is enabled or disabled
-- `sshkeyargs` (Block Set) the ssh key arguments of the secret (see [below for nested schema](#nestedblock--sshkeyargs))
-- `weblauncherrequiresincognitomode` (Boolean) the secret requires web launcher encognito mode or not
+- `active` (Boolean) Whether the secret is active.
+- `autochangenabled` (Boolean) Whether auto-change is enabled for the secret.
+- `checkedout` (Boolean) Whether the secret is checked out.
+- `checkoutchangepasswordenabled` (Boolean) Whether checkout change password is enabled.
+- `checkoutenabled` (Boolean) Whether checkout is enabled for the secret.
+- `checkoutintervalminutes` (Number) The checkout interval in minutes.
+- `delayindexing` (Boolean) Whether delay indexing is enabled.
+- `enableinheritpermissions` (Boolean) Whether inherit permissions is enabled.
+- `enableinheritsecretpolicy` (Boolean) Whether inherit secret policy is enabled.
+- `fields` (Block List) List of fields for the secret. (see [below for nested schema](#nestedblock--fields))
+- `launcherconnectassecretid` (Number) The ID of the launcher connect-as secret.
+- `passwordtypewebscriptid` (Number) The ID of the password type web script.
+- `proxyenabled` (Boolean) Whether proxy is enabled.
+- `requirescomment` (Boolean) Whether a comment is required.
+- `secretpolicyid` (Number) The ID of the secret policy.
+- `sessionrecordingenabled` (Boolean) Whether session recording is enabled.
+- `sshkeyargs` (Block, Optional) SSH key generation arguments. (see [below for nested schema](#nestedblock--sshkeyargs))
+- `weblauncherrequiresincognitomode` (Boolean) Whether the web launcher requires incognito mode.
 
 ### Read-Only
 
-- `id` (String) The ID of this resource.
+- `id` (Number) The ID of the secret.
 
 <a id="nestedblock--fields"></a>
 ### Nested Schema for `fields`
-
-Required:
-
-- `fieldname` (String)
 
 Optional:
 
 - `fielddescription` (String)
 - `fieldid` (Number)
+- `fieldname` (String)
 - `fileattachmentid` (Number)
 - `filename` (String)
 - `isfile` (Boolean)
 - `islist` (Boolean)
 - `isnotes` (Boolean)
 - `ispassword` (Boolean)
-- `itemvalue` (String)
+- `itemid` (Number)
+- `itemvalue` (String) The value of the field. For SSH key generation, this will be computed by the server.
 - `listtype` (String)
 - `slug` (String)
 
@@ -72,44 +70,7 @@ Optional:
 <a id="nestedblock--sshkeyargs"></a>
 ### Nested Schema for `sshkeyargs`
 
-Required:
+Optional:
 
-- `generatepassphrase` (Boolean)
-- `generatesshkey` (Boolean)
-
-## Example Usage
-Create/Update Secret:
-```hcl
-tss_username   = "my_app_user"
-tss_password   = "Passw0rd."
-tss_server_url = "https://example/SecretServer"
-tss_secret_name = "Windows Account"
-tss_secret_siteid = 1
-tss_secret_folderid = 0
-tss_secret_templateid = 6003
-fields = [
-  {
-    fieldname   = "Machine"
-    itemvalue = "hostname/ip"
-  },
-  {
-    fieldname   = "Username"
-    itemvalue = "my_app_user"
-  },
-  {
-    fieldname   = "Password"
-    itemvalue = "Passw0rd."
-  },
-  {
-    fieldname   = "Notes"
-    itemvalue = ""
-  }
-]
-```
-Above Create/Update Secret variables are for Windows Account secret template of secret server. To create variables to support different secret template refer below steps
-
-1. Open secret templete in secret server Admin => Secret Templates
-2. Replace tss_secret_templateid value with the teplate id which can be see in the URL when user click on any template in secret server.
-3. Click on Fields tab
-4. Based on template fields add/update field (with field name and item value) in fields array as above example. In above example there are four fields but in other template
-   there might be more/less flieds. Accordingly, add/remove field entry from the fields array.
+- `generatepassphrase` (Boolean) Whether to generate a passphrase for the SSH key.
+- `generatesshkeys` (Boolean) Whether to generate SSH keys.
