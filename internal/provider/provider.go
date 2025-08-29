@@ -13,8 +13,26 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/types"
 )
 
+// Ensure the provider implements the ProviderWithEphemeralResources interface
+var _ provider.Provider = &TSSProvider{}
+var _ provider.ProviderWithEphemeralResources = (*TSSProvider)(nil)
+
+// New returns a new instance of the provider
+func New(version string) func() provider.Provider {
+	return func() provider.Provider {
+		return &TSSProvider{
+			version: version,
+		}
+	}
+}
+
 // Define the provider structure
-type TSSProvider struct{}
+type TSSProvider struct {
+	// version is set to the provider version on release, "dev" when the
+	// provider is built and ran locally, and "test" when running acceptance
+	// testing.
+	version string
+}
 
 // Define the provider schema model
 type TSSProviderModel struct {
@@ -23,9 +41,6 @@ type TSSProviderModel struct {
 	Password  types.String `tfsdk:"password"`
 	Domain    types.String `tfsdk:"domain"`
 }
-
-// Ensure the provider implements the ProviderWithEphemeralResources interface
-var _ provider.ProviderWithEphemeralResources = (*TSSProvider)(nil)
 
 // Metadata returns the provider type name
 func (p *TSSProvider) Metadata(ctx context.Context, req provider.MetadataRequest, resp *provider.MetadataResponse) {
@@ -131,9 +146,4 @@ func (p *TSSProvider) EphemeralResources(_ context.Context) []func() ephemeral.E
 			return &TSSSecretsEphemeralResource{}
 		},
 	}
-}
-
-// New returns a new instance of the provider
-func New() provider.Provider {
-	return &TSSProvider{}
 }
