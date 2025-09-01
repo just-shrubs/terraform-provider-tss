@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"log"
+	"os"
 
 	"github.com/DelineaXPM/tss-sdk-go/v2/server"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
@@ -16,15 +17,6 @@ import (
 // Ensure the provider implements the ProviderWithEphemeralResources interface
 var _ provider.Provider = &TSSProvider{}
 var _ provider.ProviderWithEphemeralResources = (*TSSProvider)(nil)
-
-// New returns a new instance of the provider
-func New(version string) func() provider.Provider {
-	return func() provider.Provider {
-		return &TSSProvider{
-			version: version,
-		}
-	}
-}
 
 // Define the provider structure
 type TSSProvider struct {
@@ -74,14 +66,18 @@ func (p *TSSProvider) Schema(ctx context.Context, req provider.SchemaRequest, re
 
 // Configure initializes the provider with the given configuration
 func (p *TSSProvider) Configure(ctx context.Context, req provider.ConfigureRequest, resp *provider.ConfigureResponse) {
-	var config TSSProviderModel
+	serverUrl := os.Getenv("TSS_SERVER_URL")
+	username := os.Getenv("TSS_USERNAME")
+	password := os.Getenv("TSS_PASSWORD")
+	domain := os.Getenv("TSS_DOMAIN")
+
+	var data TSSProviderModel
 
 	// Log the start of the Configure method
 	log.Printf("Starting Configure method")
 
 	// Read configuration values into the config struct
-	diags := req.Config.Get(ctx, &config)
-	resp.Diagnostics.Append(diags...)
+	resp.Diagnostics.Append(req.Config.Get(ctx, &data)...)
 	if resp.Diagnostics.HasError() {
 		resp.Diagnostics.AddError("Configuration Error", "Failed to read provider configuration")
 		log.Printf("Failed to read provider configuration", map[string]interface{}{
@@ -92,17 +88,61 @@ func (p *TSSProvider) Configure(ctx context.Context, req provider.ConfigureReque
 
 	// Log the configuration values
 	log.Printf("Provider configuration values retrieved", map[string]interface{}{
-		"server_url": config.ServerURL.ValueString(),
-		"username":   config.Username.ValueString(),
+		"server_url": data.ServerURL.ValueString(),
+		"username":   data.Username.ValueString(),
 	})
+
+	// Check configuration data, which should take precedence over environment variable data, if found.
+	if data.ServerURL.ValueString() != "" {
+		serverUrl = data.ServerURL.ValueString()
+	}
+	if data.Username.ValueString() != "" {
+		username = data.Username.ValueString()
+	}
+	if data.Password.ValueString() != "" {
+		password = data.Password.ValueString()
+	}
+	if data.Domain.ValueString() != "" {
+		domain = data.Domain.ValueString()
+	}
+
+	if serverUrl == "" {
+		resp.Diagnostics.AddError(
+			"Missing Server URL Configuration",
+			"While configuring the provider, the Server URL was not found in "+
+				"the TSS_SEVRER_URL environment variable or provider "+
+				"configuration block server_url attribute.",
+		)
+		// Not returning early allows the logic to collect all errors.
+	}
+
+	if username == "" {
+		resp.Diagnostics.AddError(
+			"Missing Username Configuration",
+			"While configuring the provider, the username was not found in "+
+				"the TSS_USERNAME environment variable or provider "+
+				"configuration block username attribute.",
+		)
+		// Not returning early allows the logic to collect all errors.
+	}
+
+	if password == "" {
+		resp.Diagnostics.AddError(
+			"Missing Password Configuration",
+			"While configuring the provider, the password was not found in "+
+				"the TSS_PASSWORD environment variable or provider "+
+				"configuration block password attribute.",
+		)
+		// Not returning early allows the logic to collect all errors.
+	}
 
 	// Create the server configuration
 	serverConfig := &server.Configuration{
-		ServerURL: config.ServerURL.ValueString(),
+		ServerURL: serverUrl,
 		Credentials: server.UserCredential{
-			Username: config.Username.ValueString(),
-			Password: config.Password.ValueString(),
-			Domain:   config.Domain.ValueString(),
+			Username: username,
+			Password: password,
+			Domain:   domain,
 		},
 	}
 
@@ -112,9 +152,20 @@ func (p *TSSProvider) Configure(ctx context.Context, req provider.ConfigureReque
 		resp.Diagnostics.AddError("Configuration Error", "Server configuration is nil")
 		return
 	}
-	resp.DataSourceData = serverConfig
-	resp.ResourceData = serverConfig
-	resp.EphemeralResourceData = serverConfig
+
+	// Create the server client
+	tssClient, err := server.New(*serverConfig)
+	if err != nil {
+		resp.Diagnostics.AddError(
+			"An unexpected error occurred when creating the tss client",
+			"Error: "+err.Error(),
+		)
+		return
+	}
+
+	resp.DataSourceData = tssClient
+	resp.ResourceData = tssClient
+	resp.EphemeralResourceData = tssClient
 }
 
 // DataSources returns the data sources supported by the provider
@@ -128,7 +179,7 @@ func (p *TSSProvider) DataSources(ctx context.Context) []func() datasource.DataS
 // Resources returns the resources supported by the provider
 func (p *TSSProvider) Resources(ctx context.Context) []func() resource.Resource {
 	return []func() resource.Resource{
-		func() resource.Resource { return &TSSSecretResource{} },
+		NewTSSSecretResource,
 		func() resource.Resource {
 			return &TSSSecretDeletionResource{}
 		},
@@ -145,5 +196,14 @@ func (p *TSSProvider) EphemeralResources(_ context.Context) []func() ephemeral.E
 		func() ephemeral.EphemeralResource {
 			return &TSSSecretsEphemeralResource{}
 		},
+	}
+}
+
+// New returns a new instance of the provider
+func New(version string) func() provider.Provider {
+	return func() provider.Provider {
+		return &TSSProvider{
+			version: version,
+		}
 	}
 }
