@@ -79,15 +79,19 @@ func (p *TSSProvider) Configure(ctx context.Context, req provider.ConfigureReque
 	// Read configuration values into the config struct
 	resp.Diagnostics.Append(req.Config.Get(ctx, &data)...)
 	if resp.Diagnostics.HasError() {
-		resp.Diagnostics.AddError("Configuration Error", "Failed to read provider configuration")
-		log.Printf("Failed to read provider configuration", map[string]interface{}{
-			"diagnostics": resp.Diagnostics,
-		})
+		resp.Diagnostics.AddError(
+			"Configuration Error",
+			"Failed to read provider configuration",
+		)
+		log.Print(
+			"Failed to read provider configuration", map[string]any{
+				"diagnostics": resp.Diagnostics,
+			})
 		return
 	}
 
 	// Log the configuration values
-	log.Printf("Provider configuration values retrieved", map[string]interface{}{
+	log.Print("Provider configuration values retrieved", map[string]any{
 		"server_url": data.ServerURL.ValueString(),
 		"username":   data.Username.ValueString(),
 	})
@@ -144,13 +148,6 @@ func (p *TSSProvider) Configure(ctx context.Context, req provider.ConfigureReque
 			Password: password,
 			Domain:   domain,
 		},
-	}
-
-	// Pass the server configuration to resources and data sources
-	if serverConfig == nil {
-		log.Printf("Server configuration is nil")
-		resp.Diagnostics.AddError("Configuration Error", "Server configuration is nil")
-		return
 	}
 
 	// Create the server client
