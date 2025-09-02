@@ -8,6 +8,7 @@ import (
 
 	"github.com/DelineaXPM/tss-sdk-go/v2/server"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
+	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
@@ -15,14 +16,26 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/types"
 )
 
+// Ensure the implementation satisfies the expected interfaces.
+var (
+	_ resource.Resource                = &TSSSecretResource{}
+	_ resource.ResourceWithConfigure   = &TSSSecretResource{}
+	_ resource.ResourceWithImportState = &TSSSecretResource{}
+)
+
+// NewTSSecretResource is a helper function to simplify the provider implementation.
+func NewTSSSecretResource() resource.Resource {
+	return &TSSSecretResource{}
+}
+
 // TSSSecretResource defines the resource implementation
 type TSSSecretResource struct {
-	clientConfig *server.Configuration // Store the provider configuration
+	client *server.Server
 }
 
 // SecretResourceState defines the state structure for the secret resource
 type SecretResourceState struct {
-	ID                               types.Int64   `tfsdk:"id"`
+	ID                               types.String  `tfsdk:"id"`
 	Name                             types.String  `tfsdk:"name"`
 	FolderID                         types.String  `tfsdk:"folderid"`
 	SiteID                           types.String  `tfsdk:"siteid"`
@@ -73,299 +86,15 @@ func (r *TSSSecretResource) Metadata(ctx context.Context, req resource.MetadataR
 	resp.TypeName = "tss_resource_secret"
 }
 
-// Configure initializes the resource with the provider configuration
-func (r *TSSSecretResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
-	if req.ProviderData == nil {
-		return
-	}
-
-	config, ok := req.ProviderData.(*server.Configuration)
-	if !ok {
-		resp.Diagnostics.AddError("Configuration Error", "Failed to retrieve provider configuration")
-		return
-	}
-
-	// Store the provider configuration in the resource
-	r.clientConfig = config
-}
-
-// Create creates the resource
-
-// Create creates the resource
-func (r *TSSSecretResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
-	var plan SecretResourceState
-
-	// Read the configuration
-	diags := req.Plan.Get(ctx, &plan)
-	resp.Diagnostics.Append(diags...)
-	if resp.Diagnostics.HasError() {
-		return
-	}
-
-	// Ensure the client configuration is set
-	if r.clientConfig == nil {
-		resp.Diagnostics.AddError("Client Error", "The server client is not configured")
-		return
-	}
-
-	// Create the server client
-	client, err := server.New(*r.clientConfig)
-	if err != nil {
-		resp.Diagnostics.AddError("Configuration Error", fmt.Sprintf("Failed to create server client: %s", err))
-		return
-	}
-
-	// Get the secret data
-	newSecret, err := r.getSecretData(ctx, &plan, client)
-	if err != nil {
-		resp.Diagnostics.AddError("Secret Data Error", fmt.Sprintf("Failed to prepare secret data: %s", err))
-		return
-	}
-
-	fmt.Printf("[DEBUG] creating secret with name %s", newSecret.Name)
-
-	// Use the client to create the secret
-	createdSecret, err := client.CreateSecret(*newSecret)
-	if err != nil {
-		resp.Diagnostics.AddError("Secret Creation Error", fmt.Sprintf("Failed to create secret: %s", err))
-		return
-	}
-
-	fmt.Printf("Secret is Created successfully...!")
-
-	// Refresh state - let Terraform accept the computed values from the server
-	newState, readDiags := r.readSecretByID(ctx, createdSecret.ID, client)
-	resp.Diagnostics.Append(readDiags...)
-	if resp.Diagnostics.HasError() {
-		return
-	}
-
-	// Preserve the SSH key args from the plan since the server doesn't return them
-	if plan.SshKeyArgs != nil {
-		newState.SshKeyArgs = plan.SshKeyArgs
-	}
-
-	// Preserve file attachment information for file fields
-	for i, field := range newState.Fields {
-		if field.IsFile.ValueBool() {
-			// Find the matching field in the plan
-			for _, planField := range plan.Fields {
-				if planField.FieldName.ValueString() == field.FieldName.ValueString() && planField.IsFile.ValueBool() {
-					// Preserve FileAttachmentID and Filename
-					newState.Fields[i].FileAttachmentID = planField.FileAttachmentID
-					newState.Fields[i].Filename = planField.Filename
-					break
-				}
-			}
-		}
-	}
-
-	// Set the state
-	diags = resp.State.Set(ctx, newState)
-	resp.Diagnostics.Append(diags...)
-}
-
-// Update updates the resource
-func (r *TSSSecretResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
-	var plan SecretResourceState
-	var state SecretResourceState
-
-	// Read the plan
-	diags := req.Plan.Get(ctx, &plan)
-	resp.Diagnostics.Append(diags...)
-	diags = req.State.Get(ctx, &state)
-	resp.Diagnostics.Append(diags...)
-	if resp.Diagnostics.HasError() {
-		return
-	}
-
-	// Ensure the client configuration is set
-	if r.clientConfig == nil {
-		resp.Diagnostics.AddError("Client Error", "The server client is not configured")
-		return
-	}
-
-	// Create the server client
-	client, err := server.New(*r.clientConfig)
-	if err != nil {
-		resp.Diagnostics.AddError("Configuration Error", fmt.Sprintf("Failed to create server client: %s", err))
-		return
-	}
-
-	// Get the secret data
-	// During update, we shouldn't send SSH key generation parameters
-	// because the server doesn't support SSH key generation during update
-	updatePlan := plan
-
-	// Check if SSH key generation was requested in the original creation
-	hasSshKeyArgs := false
-	if state.SshKeyArgs != nil &&
-		(state.SshKeyArgs.GenerateSshKeys.ValueBool() ||
-			state.SshKeyArgs.GeneratePassphrase.ValueBool()) {
-		hasSshKeyArgs = true
-	}
-
-	// Don't send SSH key args during update - they're only for creation
-	updatePlan.SshKeyArgs = nil
-
-	updatedSecret, err := r.getSecretData(ctx, &updatePlan, client)
-	if err != nil {
-		resp.Diagnostics.AddError("Secret Data Error", fmt.Sprintf("Failed to prepare secret data: %s", err))
-		return
-	}
-
-	// If we have SSH key fields, preserve the existing values from the current state
-	for i, field := range updatedSecret.Fields {
-		fieldName := field.FieldName
-		if hasSshKeyArgs && (strings.Contains(strings.ToLower(fieldName), "key") ||
-			strings.Contains(strings.ToLower(fieldName), "passphrase")) {
-			// For secrets with SSH keys, preserve the server-generated values
-			for _, stateField := range state.Fields {
-				if strings.EqualFold(stateField.FieldName.ValueString(), fieldName) {
-					// Check if the plan specifically wants to update this field
-					// If not, preserve the existing state value
-					fieldFound := false
-					for _, planField := range plan.Fields {
-						if strings.EqualFold(planField.FieldName.ValueString(), fieldName) {
-							fieldFound = true
-							if planField.ItemValue.IsNull() || planField.ItemValue.ValueString() == "" {
-								// Plan is not updating this field, preserve state
-								updatedSecret.Fields[i].ItemValue = stateField.ItemValue.ValueString()
-								fmt.Printf("[DEBUG] Preserving SSH field %s value during update\n", fieldName)
-							} else {
-								// Plan is updating this field, use new value
-								fmt.Printf("[DEBUG] Updating SSH field %s with new value\n", fieldName)
-							}
-							break
-						}
-					}
-
-					if !fieldFound {
-						// Field not found in plan, preserve state value
-						updatedSecret.Fields[i].ItemValue = stateField.ItemValue.ValueString()
-						fmt.Printf("[DEBUG] Preserving SSH field %s value (not in plan)\n", fieldName)
-					}
-
-					// Also preserve the filename for key fields regardless
-					if !stateField.Filename.IsNull() && stateField.Filename.ValueString() != "" {
-						updatedSecret.Fields[i].Filename = stateField.Filename.ValueString()
-						fmt.Printf("[DEBUG] Preserving filename %s for field %s\n",
-							stateField.Filename.ValueString(), fieldName)
-					}
-					break
-				}
-			}
-		}
-	}
-
-	// Update the secret
-	updatedSecret.ID = int(state.ID.ValueInt64())
-	fmt.Printf("[DEBUG] updating secret with id %d", updatedSecret.ID)
-	_, err = client.UpdateSecret(*updatedSecret)
-	if err != nil {
-		resp.Diagnostics.AddError("Secret Update Error", fmt.Sprintf("Failed to update secret: %s", err))
-		return
-	}
-
-	fmt.Printf("Secret is Updated successfully...!")
-
-	//Refresh state
-	newState, readDiags := r.readSecretByID(ctx, updatedSecret.ID, client)
-	resp.Diagnostics.Append(readDiags...)
-	if resp.Diagnostics.HasError() {
-		return
-	}
-
-	// Preserve the SSH key args from the plan since the server doesn't return them
-	if plan.SshKeyArgs != nil {
-		newState.SshKeyArgs = plan.SshKeyArgs
-	}
-
-	// Preserve file attachment information for file fields and SSH key fields
-	for i, field := range newState.Fields {
-		fieldName := field.FieldName.ValueString()
-		isSSHKeyField := hasSshKeyArgs && (strings.Contains(strings.ToLower(fieldName), "key") ||
-			strings.Contains(strings.ToLower(fieldName), "passphrase"))
-
-		// Handle both regular file fields and SSH key fields
-		if field.IsFile.ValueBool() || isSSHKeyField {
-			// First check the state (higher priority for existing secrets)
-			for _, stateField := range state.Fields {
-				if stateField.FieldName.ValueString() == fieldName {
-					// Preserve FileAttachmentID and Filename from state
-					if !stateField.FileAttachmentID.IsNull() {
-						newState.Fields[i].FileAttachmentID = stateField.FileAttachmentID
-					}
-					if !stateField.Filename.IsNull() && stateField.Filename.ValueString() != "" {
-						newState.Fields[i].Filename = stateField.Filename
-						fmt.Printf("[DEBUG] Preserved filename %s for field %s from state\n",
-							stateField.Filename.ValueString(), fieldName)
-					}
-					break
-				}
-			}
-
-			// If filename still empty, check plan
-			if newState.Fields[i].Filename.IsNull() || newState.Fields[i].Filename.ValueString() == "" {
-				for _, planField := range plan.Fields {
-					if planField.FieldName.ValueString() == fieldName {
-						if !planField.Filename.IsNull() && planField.Filename.ValueString() != "" {
-							newState.Fields[i].Filename = planField.Filename
-							fmt.Printf("[DEBUG] Preserved filename %s for field %s from plan\n",
-								planField.Filename.ValueString(), fieldName)
-						}
-						break
-					}
-				}
-			}
-		}
-	}
-
-	// Set the state
-	diags = resp.State.Set(ctx, newState)
-	resp.Diagnostics.Append(diags...)
-}
-
-// Delete deletes the resource
-func (r *TSSSecretResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
-	var state SecretResourceState
-
-	// Read the state
-	diags := req.State.Get(ctx, &state)
-	resp.Diagnostics.Append(diags...)
-	if resp.Diagnostics.HasError() {
-		return
-	}
-
-	// Ensure the client configuration is set
-	if r.clientConfig == nil {
-		resp.Diagnostics.AddError("Client Error", "The server client is not configured")
-		return
-	}
-
-	fmt.Printf("[DEBUG] deleting secret with id %d", int(state.ID.ValueInt64()))
-
-	// Create the server client
-	client, err := server.New(*r.clientConfig)
-	if err != nil {
-		resp.Diagnostics.AddError("Configuration Error", fmt.Sprintf("Failed to create server client: %s", err))
-		return
-	}
-
-	// Delete the secret
-	err = client.DeleteSecret(int(state.ID.ValueInt64()))
-	if err != nil {
-		resp.Diagnostics.AddError("Secret Deletion Error", fmt.Sprintf("Failed to delete secret: %s", err))
-		return
-	}
-
-	fmt.Printf("Secret is Deleted successfully...!")
-}
-
 // Schema defines the schema for the resource
 func (r *TSSSecretResource) Schema(ctx context.Context, req resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
 		Attributes: map[string]schema.Attribute{
+			"id": schema.StringAttribute{
+				Computed:    true,
+				Optional:    true,
+				Description: "The ID of the secret.",
+			},
 			"name": schema.StringAttribute{
 				Required:    true,
 				Description: "The name of the secret.",
@@ -422,12 +151,6 @@ func (r *TSSSecretResource) Schema(ctx context.Context, req resource.SchemaReque
 				Computed:    true,
 				Description: "Whether auto-change is enabled for the secret.",
 			},
-
-			"id": schema.Int64Attribute{
-				Computed:    true,
-				Description: "The ID of the secret.",
-			},
-
 			"checkoutchangepasswordenabled": schema.BoolAttribute{
 				Optional:    true,
 				Computed:    true,
@@ -552,8 +275,96 @@ func (r *TSSSecretResource) Schema(ctx context.Context, req resource.SchemaReque
 	}
 }
 
+// Configure initializes the resource with the provider configuration
+func (r *TSSSecretResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
+	if req.ProviderData == nil {
+		return
+	}
+
+	client, ok := req.ProviderData.(*server.Server)
+
+	if !ok {
+		resp.Diagnostics.AddError("Configuration Error", "Failed to retrieve provider configuration")
+		return
+	}
+
+	// Store the provider configuration in the resource
+	r.client = client
+}
+
+// Create creates the resource
+func (r *TSSSecretResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
+	var plan SecretResourceState
+
+	// Read the configuration
+	diags := req.Plan.Get(ctx, &plan)
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	// Ensure the client configuration is set
+	if r.client == nil {
+		resp.Diagnostics.AddError("Client Error", "The server client is not configured")
+		return
+	}
+
+	// Get the secret data
+	newSecret, err := r.getSecretData(ctx, &plan, r.client)
+	if err != nil {
+		resp.Diagnostics.AddError("Secret Data Error", fmt.Sprintf("Failed to prepare secret data: %s", err))
+		return
+	}
+
+	fmt.Printf("[DEBUG] creating secret with name %s", newSecret.Name)
+
+	// Use the client to create the secret
+	createdSecret, err := r.client.CreateSecret(*newSecret)
+	if err != nil {
+		resp.Diagnostics.AddError("Secret Creation Error", fmt.Sprintf("Failed to create secret: %s", err))
+		return
+	}
+	stringCreatedSecret := strconv.Itoa(createdSecret.ID)
+
+	fmt.Printf("Secret is Created successfully...!")
+
+	// Refresh state - let Terraform accept the computed values from the server
+	newState, readDiags := r.readSecretByID(ctx, stringCreatedSecret)
+	resp.Diagnostics.Append(readDiags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	// Preserve the SSH key args from the plan since the server doesn't return them
+	if plan.SshKeyArgs != nil {
+		newState.SshKeyArgs = plan.SshKeyArgs
+	}
+
+	// Preserve file attachment information for file fields
+	for i, field := range newState.Fields {
+		if field.IsFile.ValueBool() {
+			// Find the matching field in the plan
+			for _, planField := range plan.Fields {
+				if planField.FieldName.ValueString() == field.FieldName.ValueString() && planField.IsFile.ValueBool() {
+					// Preserve FileAttachmentID and Filename
+					newState.Fields[i].FileAttachmentID = planField.FileAttachmentID
+					newState.Fields[i].Filename = planField.Filename
+					break
+				}
+			}
+		}
+	}
+
+	// Set the state
+	diags = resp.State.Set(ctx, newState)
+	resp.Diagnostics.Append(diags...)
+}
+
 func (r *TSSSecretResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
 	var state SecretResourceState
+	// secretID, err := stringToInt(state.ID)
+	// if err != nil {
+	// return nil, fmt.Errorf("Invalid ID; %w", err)
+	// }
 
 	// Read the state
 	diags := req.State.Get(ctx, &state)
@@ -563,22 +374,15 @@ func (r *TSSSecretResource) Read(ctx context.Context, req resource.ReadRequest, 
 	}
 
 	// Ensure the client configuration is set
-	if r.clientConfig == nil {
+	if r.client == nil {
 		resp.Diagnostics.AddError("Client Error", "The server client is not configured")
 		return
 	}
 
-	fmt.Printf("[DEBUG] getting secret with id %d", int(state.ID.ValueInt64()))
-
-	// Create the server client
-	client, err := server.New(*r.clientConfig)
-	if err != nil {
-		resp.Diagnostics.AddError("Configuration Error", fmt.Sprintf("Failed to create server client: %s", err))
-		return
-	}
+	fmt.Printf("[DEBUG] getting secret with id %s", state.ID.ValueString())
 
 	// Retrieve the secret
-	newState, readDiags := r.readSecretByID(ctx, int(state.ID.ValueInt64()), client)
+	newState, readDiags := r.readSecretByID(ctx, state.ID.ValueString())
 	resp.Diagnostics.Append(readDiags...)
 	if resp.Diagnostics.HasError() {
 		return
@@ -627,17 +431,208 @@ func (r *TSSSecretResource) Read(ctx context.Context, req resource.ReadRequest, 
 	resp.Diagnostics.Append(diags...)
 }
 
-func (r *TSSSecretResource) readSecretByID(ctx context.Context, id int, client *server.Server) (*SecretResourceState, diag.Diagnostics) {
-	// Create the server client
-	client, err := server.New(*r.clientConfig)
+// Update updates the resource
+func (r *TSSSecretResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
+	var plan SecretResourceState
+	var state SecretResourceState
+
+	// Read the plan
+	diags := req.Plan.Get(ctx, &plan)
+	resp.Diagnostics.Append(diags...)
+	diags = req.State.Get(ctx, &state)
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	// Ensure the client configuration is set
+	if r.client == nil {
+		resp.Diagnostics.AddError("Client Error", "The server client is not configured")
+		return
+	}
+
+	// Get the secret data
+	// During update, we shouldn't send SSH key generation parameters
+	// because the server doesn't support SSH key generation during update
+	updatePlan := plan
+
+	// Check if SSH key generation was requested in the original creation
+	hasSshKeyArgs := false
+	if state.SshKeyArgs != nil &&
+		(state.SshKeyArgs.GenerateSshKeys.ValueBool() ||
+			state.SshKeyArgs.GeneratePassphrase.ValueBool()) {
+		hasSshKeyArgs = true
+	}
+
+	// Don't send SSH key args during update - they're only for creation
+	updatePlan.SshKeyArgs = nil
+
+	updatedSecret, err := r.getSecretData(ctx, &updatePlan, r.client)
 	if err != nil {
-		return nil, diag.Diagnostics{
-			diag.NewErrorDiagnostic("Configuration Error", fmt.Sprintf("Failed to create server client: %s", err)),
+		resp.Diagnostics.AddError("Secret Data Error", fmt.Sprintf("Failed to prepare secret data: %s", err))
+		return
+	}
+
+	// If we have SSH key fields, preserve the existing values from the current state
+	for i, field := range updatedSecret.Fields {
+		fieldName := field.FieldName
+		if hasSshKeyArgs && (strings.Contains(strings.ToLower(fieldName), "key") ||
+			strings.Contains(strings.ToLower(fieldName), "passphrase")) {
+			// For secrets with SSH keys, preserve the server-generated values
+			for _, stateField := range state.Fields {
+				if strings.EqualFold(stateField.FieldName.ValueString(), fieldName) {
+					// Check if the plan specifically wants to update this field
+					// If not, preserve the existing state value
+					fieldFound := false
+					for _, planField := range plan.Fields {
+						if strings.EqualFold(planField.FieldName.ValueString(), fieldName) {
+							fieldFound = true
+							if planField.ItemValue.IsNull() || planField.ItemValue.ValueString() == "" {
+								// Plan is not updating this field, preserve state
+								updatedSecret.Fields[i].ItemValue = stateField.ItemValue.ValueString()
+								fmt.Printf("[DEBUG] Preserving SSH field %s value during update\n", fieldName)
+							} else {
+								// Plan is updating this field, use new value
+								fmt.Printf("[DEBUG] Updating SSH field %s with new value\n", fieldName)
+							}
+							break
+						}
+					}
+
+					if !fieldFound {
+						// Field not found in plan, preserve state value
+						updatedSecret.Fields[i].ItemValue = stateField.ItemValue.ValueString()
+						fmt.Printf("[DEBUG] Preserving SSH field %s value (not in plan)\n", fieldName)
+					}
+
+					// Also preserve the filename for key fields regardless
+					if !stateField.Filename.IsNull() && stateField.Filename.ValueString() != "" {
+						updatedSecret.Fields[i].Filename = stateField.Filename.ValueString()
+						fmt.Printf("[DEBUG] Preserving filename %s for field %s\n",
+							stateField.Filename.ValueString(), fieldName)
+					}
+					break
+				}
+			}
 		}
 	}
 
+	us := state.ID.ValueString()
+	ustoi, err := strconv.Atoi(us)
+	if err != nil {
+		resp.Diagnostics.AddError("Error converting ID from string to int", fmt.Sprintf("Failed to update secret: %s", err))
+		return
+	}
+
+	// Update the secret
+	updatedSecret.ID = ustoi
+	fmt.Printf("[DEBUG] updating secret with id %d", updatedSecret.ID)
+	_, err = r.client.UpdateSecret(*updatedSecret)
+	if err != nil {
+		resp.Diagnostics.AddError("Secret Update Error", fmt.Sprintf("Failed to update secret: %s", err))
+		return
+	}
+
+	fmt.Printf("Secret is Updated successfully...!")
+
+	//Refresh state
+	newState, readDiags := r.readSecretByID(ctx, us)
+	resp.Diagnostics.Append(readDiags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	// Preserve the SSH key args from the plan since the server doesn't return them
+	if plan.SshKeyArgs != nil {
+		newState.SshKeyArgs = plan.SshKeyArgs
+	}
+
+	// Preserve file attachment information for file fields and SSH key fields
+	for i, field := range newState.Fields {
+		fieldName := field.FieldName.ValueString()
+		isSSHKeyField := hasSshKeyArgs && (strings.Contains(strings.ToLower(fieldName), "key") ||
+			strings.Contains(strings.ToLower(fieldName), "passphrase"))
+
+		// Handle both regular file fields and SSH key fields
+		if field.IsFile.ValueBool() || isSSHKeyField {
+			// First check the state (higher priority for existing secrets)
+			for _, stateField := range state.Fields {
+				if stateField.FieldName.ValueString() == fieldName {
+					// Preserve FileAttachmentID and Filename from state
+					if !stateField.FileAttachmentID.IsNull() {
+						newState.Fields[i].FileAttachmentID = stateField.FileAttachmentID
+					}
+					if !stateField.Filename.IsNull() && stateField.Filename.ValueString() != "" {
+						newState.Fields[i].Filename = stateField.Filename
+						fmt.Printf("[DEBUG] Preserved filename %s for field %s from state\n",
+							stateField.Filename.ValueString(), fieldName)
+					}
+					break
+				}
+			}
+
+			// If filename still empty, check plan
+			if newState.Fields[i].Filename.IsNull() || newState.Fields[i].Filename.ValueString() == "" {
+				for _, planField := range plan.Fields {
+					if planField.FieldName.ValueString() == fieldName {
+						if !planField.Filename.IsNull() && planField.Filename.ValueString() != "" {
+							newState.Fields[i].Filename = planField.Filename
+							fmt.Printf("[DEBUG] Preserved filename %s for field %s from plan\n",
+								planField.Filename.ValueString(), fieldName)
+						}
+						break
+					}
+				}
+			}
+		}
+	}
+
+	// Set the state
+	diags = resp.State.Set(ctx, newState)
+	resp.Diagnostics.Append(diags...)
+}
+
+// Delete deletes the resource
+func (r *TSSSecretResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
+	var state SecretResourceState
+
+	// Read the state
+	diags := req.State.Get(ctx, &state)
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	// Ensure the client configuration is set
+	if r.client == nil {
+		resp.Diagnostics.AddError("Client Error", "The server client is not configured")
+		return
+	}
+
+	id := state.ID.ValueString()
+	idtoi, err := strconv.Atoi(id)
+
+	fmt.Printf("[DEBUG] deleting secret with id %s", state.ID.ValueString())
+
+	// Delete the secret
+	err = r.client.DeleteSecret(idtoi)
+	if err != nil {
+		resp.Diagnostics.AddError("Secret Deletion Error", fmt.Sprintf("Failed to delete secret: %s", err))
+		return
+	}
+
+	fmt.Printf("Secret is Deleted successfully...!")
+}
+
+func (r *TSSSecretResource) readSecretByID(ctx context.Context, id string) (*SecretResourceState, diag.Diagnostics) {
+	secretID, err := strconv.Atoi(id)
+	if err != nil {
+		return nil, diag.Diagnostics{
+			diag.NewErrorDiagnostic("Secret Conversion Error", fmt.Sprintf("invalid secret ID: %s", err)),
+		}
+	}
 	// Retrieve the secret using the provided client
-	secret, err := client.Secret(id)
+	secret, err := r.client.Secret(secretID)
 	if err != nil {
 		return nil, diag.Diagnostics{
 			diag.NewErrorDiagnostic("Secret Retrieval Error", fmt.Sprintf("Failed to retrieve secret: %s", err)),
@@ -656,15 +651,15 @@ func (r *TSSSecretResource) readSecretByID(ctx context.Context, id int, client *
 
 func (r *TSSSecretResource) getSecretData(ctx context.Context, state *SecretResourceState, client *server.Server) (*server.Secret, error) {
 	// Convert string attributes to integers
-	folderID, err := stringToInt(state.FolderID)
+	folderID, err := strconv.Atoi(state.FolderID.ValueString())
 	if err != nil {
 		return nil, fmt.Errorf("invalid Folder ID: %w", err)
 	}
-	siteID, err := stringToInt(state.SiteID)
+	siteID, err := strconv.Atoi(state.SiteID.ValueString())
 	if err != nil {
 		return nil, fmt.Errorf("invalid Site ID: %w", err)
 	}
-	templateID, err := stringToInt(state.SecretTemplateID)
+	templateID, err := strconv.Atoi(state.SecretTemplateID.ValueString())
 	if err != nil {
 		return nil, fmt.Errorf("invalid Template ID: %w", err)
 	}
@@ -858,7 +853,7 @@ func flattenSecret(secret *server.Secret) (*SecretResourceState, error) {
 
 	state := &SecretResourceState{
 		Name:             types.StringValue(secret.Name),
-		ID:               types.Int64Value(int64(secret.ID)),
+		ID:               types.StringValue(strconv.Itoa(secret.ID)),
 		FolderID:         types.StringValue(strconv.Itoa(secret.FolderID)),
 		SiteID:           types.StringValue(strconv.Itoa(secret.SiteID)),
 		SecretTemplateID: types.StringValue(strconv.Itoa(secret.SecretTemplateID)),
@@ -903,12 +898,12 @@ func flattenSecret(secret *server.Secret) (*SecretResourceState, error) {
 }
 
 // Helper function to convert string to int
-func stringToInt(value types.String) (int, error) {
-	if value.IsNull() {
-		return 0, nil
-	}
-	return strconv.Atoi(value.ValueString())
-}
+// func stringToInt(value types.String) (int, error) {
+// 	if value.IsNull() {
+// 		return 0, nil
+// 	}
+// 	return strconv.Atoi(value.ValueString())
+// }
 
 // sshKeyFieldPlanModifier is a custom plan modifier for SSH key fields
 type sshKeyFieldPlanModifier struct{}
@@ -995,4 +990,10 @@ func shouldComputeSshKeyValue(req planmodifier.StringRequest) bool {
 	// For create operations with empty values that haven't been explicitly set,
 	// mark as computed
 	return req.PlanValue.ValueString() == ""
+}
+
+// Support import of Secret Resources via ID
+func (r *TSSSecretResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
+	// Retrieve import ID and save to id attribute
+	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
 }
