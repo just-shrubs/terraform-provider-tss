@@ -897,14 +897,6 @@ func flattenSecret(secret *server.Secret) (*SecretResourceState, error) {
 	return state, nil
 }
 
-// Helper function to convert string to int
-// func stringToInt(value types.String) (int, error) {
-// 	if value.IsNull() {
-// 		return 0, nil
-// 	}
-// 	return strconv.Atoi(value.ValueString())
-// }
-
 // sshKeyFieldPlanModifier is a custom plan modifier for SSH key fields
 type sshKeyFieldPlanModifier struct{}
 
