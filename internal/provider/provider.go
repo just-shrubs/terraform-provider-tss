@@ -2,7 +2,6 @@ package provider
 
 import (
 	"context"
-	"log"
 	"os"
 
 	"github.com/DelineaXPM/tss-sdk-go/v2/server"
@@ -12,11 +11,14 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/provider/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/types"
+	"github.com/hashicorp/terraform-plugin-log/tflog"
 )
 
 // Ensure the provider implements the ProviderWithEphemeralResources interface
-var _ provider.Provider = &TSSProvider{}
-var _ provider.ProviderWithEphemeralResources = (*TSSProvider)(nil)
+var (
+	_ provider.Provider                       = &TSSProvider{}
+	_ provider.ProviderWithEphemeralResources = (*TSSProvider)(nil)
+)
 
 // Define the provider structure
 type TSSProvider struct {
@@ -37,10 +39,16 @@ type TSSProviderModel struct {
 // Metadata returns the provider type name
 func (p *TSSProvider) Metadata(ctx context.Context, req provider.MetadataRequest, resp *provider.MetadataResponse) {
 	resp.TypeName = "tss"
+	tflog.Trace(ctx, "TSSProvider metadata configured", map[string]interface{}{
+		"type_name": "tss",
+		"version":   p.version,
+	})
 }
 
 // Schema defines the provider-level schema
 func (p *TSSProvider) Schema(ctx context.Context, req provider.SchemaRequest, resp *provider.SchemaResponse) {
+	tflog.Trace(ctx, "Defining schema for TSSProvider")
+
 	resp.Schema = schema.Schema{
 		Attributes: map[string]schema.Attribute{
 			"server_url": schema.StringAttribute{
@@ -66,51 +74,61 @@ func (p *TSSProvider) Schema(ctx context.Context, req provider.SchemaRequest, re
 
 // Configure initializes the provider with the given configuration
 func (p *TSSProvider) Configure(ctx context.Context, req provider.ConfigureRequest, resp *provider.ConfigureResponse) {
+	tflog.Info(ctx, "Configuring TSS provider")
+
 	serverUrl := os.Getenv("TSS_SERVER_URL")
 	username := os.Getenv("TSS_USERNAME")
 	password := os.Getenv("TSS_PASSWORD")
 	domain := os.Getenv("TSS_DOMAIN")
 
-	var data TSSProviderModel
+	tflog.Debug(ctx, "Checking environment variables", map[string]interface{}{
+		"has_server_url": serverUrl != "",
+		"has_username":   username != "",
+		"has_password":   password != "",
+		"has_domain":     domain != "",
+	})
 
-	// Log the start of the Configure method
-	log.Printf("Starting Configure method")
+	var data TSSProviderModel
 
 	// Read configuration values into the config struct
 	resp.Diagnostics.Append(req.Config.Get(ctx, &data)...)
 	if resp.Diagnostics.HasError() {
+		tflog.Error(ctx, "Failed to read provider configuration", map[string]interface{}{
+			"error": resp.Diagnostics.Errors(),
+		})
 		resp.Diagnostics.AddError(
 			"Configuration Error",
 			"Failed to read provider configuration",
 		)
-		log.Print(
-			"Failed to read provider configuration", map[string]any{
-				"diagnostics": resp.Diagnostics,
-			})
 		return
 	}
 
 	// Log the configuration values
-	log.Print("Provider configuration values retrieved", map[string]any{
+	tflog.Info(ctx, "Provider configuration values retrieved", map[string]interface{}{
 		"server_url": data.ServerURL.ValueString(),
 		"username":   data.Username.ValueString(),
 	})
 
 	// Check configuration data, which should take precedence over environment variable data, if found.
 	if data.ServerURL.ValueString() != "" {
+		tflog.Debug(ctx, "Using server URL from provider configuration")
 		serverUrl = data.ServerURL.ValueString()
 	}
 	if data.Username.ValueString() != "" {
+		tflog.Debug(ctx, "Using username from provider configuration")
 		username = data.Username.ValueString()
 	}
 	if data.Password.ValueString() != "" {
+		tflog.Debug(ctx, "Using password from provider configuration")
 		password = data.Password.ValueString()
 	}
 	if data.Domain.ValueString() != "" {
+		tflog.Debug(ctx, "Using domain from provider configuration")
 		domain = data.Domain.ValueString()
 	}
 
 	if serverUrl == "" {
+		tflog.Error(ctx, "Missing server URL configuration")
 		resp.Diagnostics.AddError(
 			"Missing Server URL Configuration",
 			"While configuring the provider, the Server URL was not found in "+
@@ -121,6 +139,7 @@ func (p *TSSProvider) Configure(ctx context.Context, req provider.ConfigureReque
 	}
 
 	if username == "" {
+		tflog.Error(ctx, "Missing username configuration")
 		resp.Diagnostics.AddError(
 			"Missing Username Configuration",
 			"While configuring the provider, the username was not found in "+
@@ -131,6 +150,7 @@ func (p *TSSProvider) Configure(ctx context.Context, req provider.ConfigureReque
 	}
 
 	if password == "" {
+		tflog.Error(ctx, "Missing password configuration")
 		resp.Diagnostics.AddError(
 			"Missing Password Configuration",
 			"While configuring the provider, the password was not found in "+
@@ -150,15 +170,31 @@ func (p *TSSProvider) Configure(ctx context.Context, req provider.ConfigureReque
 		},
 	}
 
+	tflog.Debug(ctx, "Final configuration values", map[string]interface{}{
+		"server_url":   serverUrl,
+		"username":     username,
+		"has_password": password != "",
+		"domain":       domain,
+	})
+
 	// Create the server client
 	tssClient, err := server.New(*serverConfig)
 	if err != nil {
+		tflog.Error(ctx, "Failed to create TSS client", map[string]interface{}{
+			"error":      err.Error(),
+			"server_url": serverUrl,
+		})
 		resp.Diagnostics.AddError(
 			"An unexpected error occurred when creating the tss client",
 			"Error: "+err.Error(),
 		)
 		return
 	}
+
+	tflog.Info(ctx, "TSS provider configured successfully", map[string]interface{}{
+		"server_url": serverUrl,
+		"username":   username,
+	})
 
 	resp.DataSourceData = tssClient
 	resp.ResourceData = tssClient
@@ -167,32 +203,26 @@ func (p *TSSProvider) Configure(ctx context.Context, req provider.ConfigureReque
 
 // DataSources returns the data sources supported by the provider
 func (p *TSSProvider) DataSources(ctx context.Context) []func() datasource.DataSource {
+	tflog.Trace(ctx, "Registering TSS data sources")
 	return []func() datasource.DataSource{
-		func() datasource.DataSource { return &TSSSecretDataSource{} },
-		func() datasource.DataSource { return &TSSSecretsDataSource{} },
+		TSSSecretDataSource,
+		TSSSecretsDataSource,
 	}
 }
 
 // Resources returns the resources supported by the provider
 func (p *TSSProvider) Resources(ctx context.Context) []func() resource.Resource {
+	tflog.Trace(ctx, "Registering TSS resources")
 	return []func() resource.Resource{
 		NewTSSSecretResource,
-		func() resource.Resource {
-			return &TSSSecretDeletionResource{}
-		},
-		//For the DEBUG environment, uncomment this line to unit test whether the secret value is being fetched successfully.
-		//func() resource.Resource { return &PrintSecretResource{} },
 	}
 }
 
-func (p *TSSProvider) EphemeralResources(_ context.Context) []func() ephemeral.EphemeralResource {
+func (p *TSSProvider) EphemeralResources(ctx context.Context) []func() ephemeral.EphemeralResource {
+	tflog.Trace(ctx, "Registering TSS ephemeral resources")
 	return []func() ephemeral.EphemeralResource{
-		func() ephemeral.EphemeralResource {
-			return &TSSSecretEphemeralResource{}
-		},
-		func() ephemeral.EphemeralResource {
-			return &TSSSecretsEphemeralResource{}
-		},
+		TSSSecretEphemeralResource,
+		TSSSecretsEphemeralResource,
 	}
 }
 
