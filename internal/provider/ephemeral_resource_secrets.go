@@ -89,7 +89,7 @@ func (r *TSSSecretsEphemeralResource) Open(ctx context.Context, req ephemeral.Op
 	}
 
 	// Check for required fields in the model (secret_ids and field)
-	if data.IDs == nil || len(data.IDs) == 0 || data.Field.IsNull() {
+	if len(data.IDs) == 0 || data.Field.IsNull() {
 		resp.Diagnostics.AddError("Missing Required Field", "Both secret_ids and field are required")
 		return
 	}
@@ -169,7 +169,7 @@ func (r *TSSSecretsEphemeralResource) Renew(ctx context.Context, req ephemeral.R
 	}
 
 	// Ensure that secret_id and field are available in the private data
-	if privateData.IDs == nil || len(privateData.IDs) == 0 || privateData.Field == "" {
+	if len(privateData.IDs) == 0 || privateData.Field == "" {
 		resp.Diagnostics.AddError("Missing Private Data Fields", "Secret ID and field are required.")
 		return
 	}
