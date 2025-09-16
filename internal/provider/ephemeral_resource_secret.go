@@ -14,6 +14,11 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/types"
 )
 
+// TSSSecretEphemeralResource is a helper function to simplify the provider implementation.
+func TSSSecretEphemeralResource() ephemeral.EphemeralResource {
+	return &TSSSecretEphemeralResource{}
+}
+
 // TSSSecretResource defines the resource implementation
 type TSSSecretEphemeralResource struct {
 	clientConfig *server.Configuration // Store the provider configuration
@@ -54,6 +59,22 @@ func (r *TSSSecretEphemeralResource) Schema(ctx context.Context, req ephemeral.S
 			},
 		},
 	}
+}
+
+func (r *TSSSecretEphemeralResource) Configure(ctx context.Context, req ephemeral.ConfigureRequest, resp *ephemeral.ConfigureResponse) {
+	if req.ProviderData == nil {
+		return
+	}
+	log.Printf("DEBUG: ProviderData received in Configure")
+	client, ok := req.ProviderData.(*server.Configuration)
+	if !ok {
+		resp.Diagnostics.AddError("Invalid Provider Data", "Expected provider data of type *server.Configuration")
+		return
+	}
+
+	log.Printf("DEBUG: Successfully retrieved provider configuration")
+
+	r.clientConfig = client
 }
 
 func (r *TSSSecretEphemeralResource) Open(ctx context.Context, req ephemeral.OpenRequest, resp *ephemeral.OpenResponse) {
@@ -192,21 +213,4 @@ func (r *TSSSecretEphemeralResource) Renew(ctx context.Context, req ephemeral.Re
 }
 
 func (r *TSSSecretEphemeralResource) Close(ctx context.Context, req ephemeral.CloseRequest, resp *ephemeral.CloseResponse) {
-
-}
-
-func (r *TSSSecretEphemeralResource) Configure(ctx context.Context, req ephemeral.ConfigureRequest, resp *ephemeral.ConfigureResponse) {
-	if req.ProviderData == nil {
-		return
-	}
-	log.Printf("DEBUG: ProviderData received in Configure")
-	client, ok := req.ProviderData.(*server.Configuration)
-	if !ok {
-		resp.Diagnostics.AddError("Invalid Provider Data", "Expected provider data of type *server.Configuration")
-		return
-	}
-
-	log.Printf("DEBUG: Successfully retrieved provider configuration")
-
-	r.clientConfig = client
 }
