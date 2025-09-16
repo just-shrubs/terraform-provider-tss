@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"time"
 
 	"github.com/DelineaXPM/tss-sdk-go/v2/server"
@@ -13,6 +12,11 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
 )
+
+// TSSSecretEphemeralResource is a helper function to simplify the provider implementation.
+func TSSSecretsEphemeralResource() ephemeral.EphemeralResource {
+	return &TSSSecretsEphemeralResource{}
+}
 
 // TSSSecretsEphemeralResource implements the ephemeral resource for fetching multiple secrets.
 // Ephemeral resources are used for sensitive data that should not be persisted in state.
@@ -82,6 +86,29 @@ func (r *TSSSecretsEphemeralResource) Schema(ctx context.Context, req ephemeral.
 			},
 		},
 	}
+}
+
+func (r *TSSSecretsEphemeralResource) Configure(ctx context.Context, req ephemeral.ConfigureRequest, resp *ephemeral.ConfigureResponse) {
+	tflog.Trace(ctx, "Configuring TSSSecretsEphemeralResource")
+
+	if req.ProviderData == nil {
+		tflog.Debug(ctx, "Provider data is nil, skipping configuration")
+		return
+	}
+
+	client, ok := req.ProviderData.(*server.Server)
+	if !ok {
+		tflog.Error(ctx, "Invalid provider data type", map[string]interface{}{
+			"expected": "*server.Server",
+			"actual":   fmt.Sprintf("%T", req.ProviderData),
+		})
+		resp.Diagnostics.AddError("Invalid Provider Data", "Expected provider data of type *server.Configuration")
+		return
+	}
+
+	tflog.Debug(ctx, "Successfully retrieved provider configuration")
+
+	r.client = client
 }
 
 func (r *TSSSecretsEphemeralResource) Open(ctx context.Context, req ephemeral.OpenRequest, resp *ephemeral.OpenResponse) {
@@ -309,27 +336,4 @@ func (r *TSSSecretsEphemeralResource) Renew(ctx context.Context, req ephemeral.R
 func (r *TSSSecretsEphemeralResource) Close(ctx context.Context, req ephemeral.CloseRequest, resp *ephemeral.CloseResponse) {
 	tflog.Debug(ctx, "Closing TSSSecretsEphemeralResource")
 	// No cleanup needed for this resource
-}
-
-func (r *TSSSecretsEphemeralResource) Configure(ctx context.Context, req ephemeral.ConfigureRequest, resp *ephemeral.ConfigureResponse) {
-	tflog.Trace(ctx, "Configuring TSSSecretsEphemeralResource")
-
-	if req.ProviderData == nil {
-		tflog.Debug(ctx, "Provider data is nil, skipping configuration")
-		return
-	}
-
-	client, ok := req.ProviderData.(*server.Server)
-	if !ok {
-		tflog.Error(ctx, "Invalid provider data type", map[string]interface{}{
-			"expected": "*server.Server",
-			"actual":   fmt.Sprintf("%T", req.ProviderData),
-		})
-		resp.Diagnostics.AddError("Invalid Provider Data", "Expected provider data of type *server.Configuration")
-		return
-	}
-
-	log.Printf("DEBUG: Successfully retrieved provider configuration")
-
-	r.client = client
 }
