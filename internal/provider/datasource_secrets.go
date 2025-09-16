@@ -8,20 +8,31 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
+	"github.com/hashicorp/terraform-plugin-log/tflog"
 )
+
+// With the datasource.DataSource implementation
+func TSSSecretsDataSource() datasource.DataSource {
+	return &TSSSecretsDataSource{}
+}
 
 // TSSSecretsDataSource defines the data source implementation
 type TSSSecretsDataSource struct {
-	clientConfig *server.Configuration // Store the provider configuration
+	client *server.Server // Store the provider configuration
 }
 
 // Metadata provides the data source type name
 func (d *TSSSecretsDataSource) Metadata(ctx context.Context, req datasource.MetadataRequest, resp *datasource.MetadataResponse) {
 	resp.TypeName = "tss_secrets"
+	tflog.Trace(ctx, "TSSSecretsDataSource metadata configured", map[string]interface{}{
+		"type_name": "tss_secrets",
+	})
 }
 
 // Schema defines the schema for the data source
 func (d *TSSSecretsDataSource) Schema(ctx context.Context, req datasource.SchemaRequest, resp *datasource.SchemaResponse) {
+	tflog.Trace(ctx, "Defining schema for TSSSecretsDataSource")
+
 	resp.Schema = schema.Schema{
 		Attributes: map[string]schema.Attribute{
 			"ids": schema.ListAttribute{
@@ -56,31 +67,37 @@ func (d *TSSSecretsDataSource) Schema(ctx context.Context, req datasource.Schema
 
 // Configure initializes the data source with the provider configuration
 func (d *TSSSecretsDataSource) Configure(ctx context.Context, req datasource.ConfigureRequest, resp *datasource.ConfigureResponse) {
+	tflog.Trace(ctx, "Configuring TSSSecretsDataSource")
+
 	if req.ProviderData == nil {
 		// IMPORTANT: This method is called MULTIPLE times. An initial call might not have configured the Provider yet, so we need
 		// to handle this gracefully. It will eventually be called with a configured provider.
+		tflog.Debug(ctx, "Provider data is nil, waiting for provider configuration")
 		return
 	}
 
 	// Log the received ProviderData
-	fmt.Printf("DEBUG: ProviderData received in Configure")
+	tflog.Debug(ctx, "Provider data received, attempting to configure")
 
 	// Retrieve the provider configuration
-	config, ok := req.ProviderData.(*server.Configuration)
+	client, ok := req.ProviderData.(*server.Server)
 	if !ok {
+		tflog.Error(ctx, "Invalid provider data type", map[string]interface{}{
+			"expected": "*server.Configuration",
+			"actual":   fmt.Sprintf("%T", req.ProviderData),
+		})
 		resp.Diagnostics.AddError("Configuration Error", "Failed to retrieve provider configuration")
 		return
 	}
 
-	// Log the successfully retrieved configuration
-	fmt.Printf("DEBUG: Successfully retrieved provider configuration")
-
 	// Store the provider configuration in the data source
-	d.clientConfig = config
-	fmt.Println("DEBUG: Provider configuration stored in clientConfig")
+	d.client = client
+	tflog.Debug(ctx, "Successfully configured TSSSecretsDataSource")
 }
 
 func (d *TSSSecretsDataSource) Read(ctx context.Context, req datasource.ReadRequest, resp *datasource.ReadResponse) {
+	tflog.Debug(ctx, "Reading TSSSecretsDataSource")
+
 	var state struct {
 		IDs     []types.Int64 `tfsdk:"ids"`
 		Field   types.String  `tfsdk:"field"`
@@ -94,21 +111,23 @@ func (d *TSSSecretsDataSource) Read(ctx context.Context, req datasource.ReadRequ
 	diags := req.Config.Get(ctx, &state)
 	resp.Diagnostics.Append(diags...)
 	if resp.Diagnostics.HasError() {
+		tflog.Error(ctx, "Failed to read configuration", map[string]interface{}{
+			"error": resp.Diagnostics.Errors(),
+		})
 		return
 	}
 
 	// Ensure the client configuration is set
-	if d.clientConfig == nil {
+	if d.client == nil {
+		tflog.Error(ctx, "Client configuration is nil")
 		resp.Diagnostics.AddError("Client Error", "The server client is not configured")
 		return
 	}
 
-	// Create the server client
-	secretsClient, err := server.New(*d.clientConfig)
-	if err != nil {
-		resp.Diagnostics.AddError("Configuration Error", fmt.Sprintf("Failed to create server client: %s", err))
-		return
-	}
+	tflog.Info(ctx, "Fetching multiple secrets from TSS", map[string]interface{}{
+		"count": len(state.IDs),
+		"field": state.Field.ValueString(),
+	})
 
 	// Fetch secrets
 	var results []struct {
@@ -119,11 +138,17 @@ func (d *TSSSecretsDataSource) Read(ctx context.Context, req datasource.ReadRequ
 	for _, id := range state.IDs {
 		secretID := int(id.ValueInt64())
 
-		fmt.Printf("[DEBUG] getting secret with id %d", secretID)
+		tflog.Debug(ctx, "Fetching secret", map[string]interface{}{
+			"secret_id": secretID,
+		})
 
 		// Fetch the secret
-		secret, err := secretsClient.Secret(secretID)
+		secret, err := d.client.Secret(secretID)
 		if err != nil {
+			tflog.Warn(ctx, "Failed to fetch secret, skipping", map[string]interface{}{
+				"secret_id": secretID,
+				"error":     err.Error(),
+			})
 			resp.Diagnostics.AddWarning("Secret Fetch Warning", fmt.Sprintf("Failed to fetch secret with ID %d: %s", secretID, err))
 			continue // Skip this ID and continue with the rest
 		}
@@ -131,14 +156,26 @@ func (d *TSSSecretsDataSource) Read(ctx context.Context, req datasource.ReadRequ
 		// Get the field name dynamically
 		fieldName := state.Field.ValueString()
 
-		fmt.Printf("[DEBUG] using '%s' field of secret with id %d", fieldName, secretID)
+		tflog.Debug(ctx, "Extracting field from secret", map[string]interface{}{
+			"secret_id": secretID,
+			"field":     fieldName,
+		})
 
 		// Extract the field value
 		fieldValue, ok := secret.Field(fieldName)
 		if !ok {
+			tflog.Error(ctx, "Field not found in secret", map[string]interface{}{
+				"secret_id": secretID,
+				"field":     fieldName,
+			})
 			resp.Diagnostics.AddError("Field Not Found", fmt.Sprintf("The secret does not contain the field '%s'", fieldName))
 			continue
 		}
+
+		tflog.Trace(ctx, "Successfully extracted field from secret", map[string]interface{}{
+			"secret_id": secretID,
+			"field":     fieldName,
+		})
 
 		// Save the secret value in the state
 		results = append(results, struct {
@@ -150,8 +187,22 @@ func (d *TSSSecretsDataSource) Read(ctx context.Context, req datasource.ReadRequ
 		})
 	}
 
+	tflog.Info(ctx, "Completed fetching secrets", map[string]interface{}{
+		"requested":  len(state.IDs),
+		"successful": successCount,
+		"failed":     failedCount,
+	})
+
 	// Set the state
 	state.Secrets = results
 	diags = resp.State.Set(ctx, &state)
 	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		tflog.Error(ctx, "Failed to set state", map[string]interface{}{
+			"error": resp.Diagnostics.Errors(),
+		})
+		return
+	}
+
+	tflog.Debug(ctx, "TSSSecretsDataSource read completed successfully")
 }
