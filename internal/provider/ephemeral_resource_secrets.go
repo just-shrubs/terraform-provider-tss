@@ -13,20 +13,20 @@ import (
 	"github.com/hashicorp/terraform-plugin-log/tflog"
 )
 
-// TSSSecretEphemeralResource is a helper function to simplify the provider implementation.
-func TSSSecretsEphemeralResource() ephemeral.EphemeralResource {
-	return &TSSSecretsEphemeralResource{}
+// TssSecretEphemeralResource is a helper function to simplify the provider implementation.
+func NewTssSecretsEphemeralResource() ephemeral.EphemeralResource {
+	return &TssSecretsEphemeralResource{}
 }
 
-// TSSSecretsEphemeralResource implements the ephemeral resource for fetching multiple secrets.
+// TssSecretsEphemeralResource implements the ephemeral resource for fetching multiple secrets.
 // Ephemeral resources are used for sensitive data that should not be persisted in state.
-type TSSSecretsEphemeralResource struct {
+type TssSecretsEphemeralResource struct {
 	client *server.Server // Store the provider configuration
 }
 
-// TSSSecretsEphemeralResourceModel represents the data model for the ephemeral resource.
+// TssSecretsEphemeralResourceModel represents the data model for the ephemeral resource.
 // This structure maps directly to the Terraform schema.
-type TSSSecretsEphemeralResourceModel struct {
+type TssSecretsEphemeralResourceModel struct {
 	IDs     []types.Int64 `tfsdk:"ids"`
 	Field   types.String  `tfsdk:"field"`
 	Secrets []SecretModel `tfsdk:"secrets"`
@@ -39,23 +39,23 @@ type SecretModel struct {
 }
 
 // Define private data structure (optional)
-// TSSSecretsPrivateData stores data between resource lifecycle operations.
+// TssSecretsPrivateData stores data between resource lifecycle operations.
 // This is used during renewal to avoid re-reading configuration.
-type TSSSecretsPrivateData struct {
+type TssSecretsPrivateData struct {
 	IDs     []types.Int64 `tfsdk:"ids"`
 	Field   string        `json:"field"`
 	Secrets []SecretModel `tfsdk:"secrets"`
 }
 
-func (r *TSSSecretsEphemeralResource) Metadata(ctx context.Context, req ephemeral.MetadataRequest, resp *ephemeral.MetadataResponse) {
-	tflog.Trace(ctx, "TSSSecretsEphemeralResource metadata configured", map[string]interface{}{
+func (r *TssSecretsEphemeralResource) Metadata(ctx context.Context, req ephemeral.MetadataRequest, resp *ephemeral.MetadataResponse) {
+	tflog.Trace(ctx, "TssSecretsEphemeralResource metadata configured", map[string]interface{}{
 		"type_name": "tss_secrets",
 	})
 	resp.TypeName = "tss_secrets"
 }
 
-func (r *TSSSecretsEphemeralResource) Schema(ctx context.Context, req ephemeral.SchemaRequest, resp *ephemeral.SchemaResponse) {
-	tflog.Trace(ctx, "Defining schema for TSSSecretsEphemeralResource")
+func (r *TssSecretsEphemeralResource) Schema(ctx context.Context, req ephemeral.SchemaRequest, resp *ephemeral.SchemaResponse) {
+	tflog.Trace(ctx, "Defining schema for TssSecretsEphemeralResource")
 
 	resp.Schema = schema.Schema{
 		Attributes: map[string]schema.Attribute{
@@ -88,8 +88,8 @@ func (r *TSSSecretsEphemeralResource) Schema(ctx context.Context, req ephemeral.
 	}
 }
 
-func (r *TSSSecretsEphemeralResource) Configure(ctx context.Context, req ephemeral.ConfigureRequest, resp *ephemeral.ConfigureResponse) {
-	tflog.Trace(ctx, "Configuring TSSSecretsEphemeralResource")
+func (r *TssSecretsEphemeralResource) Configure(ctx context.Context, req ephemeral.ConfigureRequest, resp *ephemeral.ConfigureResponse) {
+	tflog.Trace(ctx, "Configuring TssSecretsEphemeralResource")
 
 	if req.ProviderData == nil {
 		tflog.Debug(ctx, "Provider data is nil, skipping configuration")
@@ -111,11 +111,11 @@ func (r *TSSSecretsEphemeralResource) Configure(ctx context.Context, req ephemer
 	r.client = client
 }
 
-func (r *TSSSecretsEphemeralResource) Open(ctx context.Context, req ephemeral.OpenRequest, resp *ephemeral.OpenResponse) {
-	tflog.Debug(ctx, "Opening TSSSecretsEphemeralResource")
+func (r *TssSecretsEphemeralResource) Open(ctx context.Context, req ephemeral.OpenRequest, resp *ephemeral.OpenResponse) {
+	tflog.Debug(ctx, "Opening TssSecretsEphemeralResource")
 
 	// Create a model to hold the input configuration
-	var data TSSSecretsEphemeralResourceModel
+	var data TssSecretsEphemeralResourceModel
 
 	// Read the Terraform config data into the model
 	resp.Diagnostics.Append(req.Config.Get(ctx, &data)...)
@@ -217,7 +217,7 @@ func (r *TSSSecretsEphemeralResource) Open(ctx context.Context, req ephemeral.Op
 	})
 
 	// Store private data for use during renewal
-	privateData, _ := json.Marshal(TSSSecretsPrivateData{
+	privateData, _ := json.Marshal(TssSecretsPrivateData{
 		IDs:     data.IDs,
 		Field:   data.Field.ValueString(),
 		Secrets: data.Secrets,
@@ -226,8 +226,8 @@ func (r *TSSSecretsEphemeralResource) Open(ctx context.Context, req ephemeral.Op
 	tflog.Trace(ctx, "Stored private data for renewal")
 }
 
-func (r *TSSSecretsEphemeralResource) Renew(ctx context.Context, req ephemeral.RenewRequest, resp *ephemeral.RenewResponse) {
-	tflog.Debug(ctx, "Renewing TSSSecretsEphemeralResource")
+func (r *TssSecretsEphemeralResource) Renew(ctx context.Context, req ephemeral.RenewRequest, resp *ephemeral.RenewResponse) {
+	tflog.Debug(ctx, "Renewing TssSecretsEphemeralResource")
 
 	// Retrieve the private data that was stored during Open
 	privateBytes, _ := req.Private.GetKey(ctx, "tss_secrets_data")
@@ -238,7 +238,7 @@ func (r *TSSSecretsEphemeralResource) Renew(ctx context.Context, req ephemeral.R
 	}
 
 	// Unmarshal private data
-	var privateData TSSSecretsPrivateData
+	var privateData TssSecretsPrivateData
 	if err := json.Unmarshal(privateBytes, &privateData); err != nil {
 		tflog.Error(ctx, "Failed to unmarshal private data", map[string]interface{}{
 			"error": err.Error(),
@@ -333,7 +333,7 @@ func (r *TSSSecretsEphemeralResource) Renew(ctx context.Context, req ephemeral.R
 	})
 }
 
-func (r *TSSSecretsEphemeralResource) Close(ctx context.Context, req ephemeral.CloseRequest, resp *ephemeral.CloseResponse) {
-	tflog.Debug(ctx, "Closing TSSSecretsEphemeralResource")
+func (r *TssSecretsEphemeralResource) Close(ctx context.Context, req ephemeral.CloseRequest, resp *ephemeral.CloseResponse) {
+	tflog.Debug(ctx, "Closing TssSecretsEphemeralResource")
 	// No cleanup needed for this resource
 }

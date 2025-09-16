@@ -14,35 +14,35 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/types"
 )
 
-// TSSSecretEphemeralResource is a helper function to simplify the provider implementation.
-func TSSSecretEphemeralResource() ephemeral.EphemeralResource {
-	return &TSSSecretEphemeralResource{}
+// TssSecretEphemeralResource is a helper function to simplify the provider implementation.
+func NewTssSecretEphemeralResource() ephemeral.EphemeralResource {
+	return &TssSecretEphemeralResource{}
 }
 
-// TSSSecretResource defines the resource implementation
-type TSSSecretEphemeralResource struct {
+// TssSecretResource defines the resource implementation
+type TssSecretEphemeralResource struct {
 	clientConfig *server.Configuration // Store the provider configuration
 }
 
-func (r *TSSSecretEphemeralResource) Metadata(ctx context.Context, req ephemeral.MetadataRequest, resp *ephemeral.MetadataResponse) {
+func (r *TssSecretEphemeralResource) Metadata(ctx context.Context, req ephemeral.MetadataRequest, resp *ephemeral.MetadataResponse) {
 	resp.TypeName = "tss_secret"
 }
 
 // Define the model for your resource state
-type TSSSecretEphemeralResourceModel struct {
+type TssSecretEphemeralResourceModel struct {
 	SecretID    types.String `tfsdk:"id"`
 	Field       types.String `tfsdk:"field"`
 	SecretValue types.String `tfsdk:"value"`
 }
 
 // Define private data structure (optional)
-type TSSSecretPrivateData struct {
+type TssSecretPrivateData struct {
 	SecretID    string `json:"id"`
 	Field       string `json:"field"`
 	SecretValue string `json:"value"`
 }
 
-func (r *TSSSecretEphemeralResource) Schema(ctx context.Context, req ephemeral.SchemaRequest, resp *ephemeral.SchemaResponse) {
+func (r *TssSecretEphemeralResource) Schema(ctx context.Context, req ephemeral.SchemaRequest, resp *ephemeral.SchemaResponse) {
 	resp.Schema = schema.Schema{
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
@@ -61,7 +61,7 @@ func (r *TSSSecretEphemeralResource) Schema(ctx context.Context, req ephemeral.S
 	}
 }
 
-func (r *TSSSecretEphemeralResource) Configure(ctx context.Context, req ephemeral.ConfigureRequest, resp *ephemeral.ConfigureResponse) {
+func (r *TssSecretEphemeralResource) Configure(ctx context.Context, req ephemeral.ConfigureRequest, resp *ephemeral.ConfigureResponse) {
 	if req.ProviderData == nil {
 		return
 	}
@@ -77,9 +77,9 @@ func (r *TSSSecretEphemeralResource) Configure(ctx context.Context, req ephemera
 	r.clientConfig = client
 }
 
-func (r *TSSSecretEphemeralResource) Open(ctx context.Context, req ephemeral.OpenRequest, resp *ephemeral.OpenResponse) {
+func (r *TssSecretEphemeralResource) Open(ctx context.Context, req ephemeral.OpenRequest, resp *ephemeral.OpenResponse) {
 	// Create a model to hold the input configuration
-	var data TSSSecretEphemeralResourceModel
+	var data TssSecretEphemeralResourceModel
 
 	// Read the Terraform config data into the model
 	resp.Diagnostics.Append(req.Config.Get(ctx, &data)...)
@@ -140,7 +140,7 @@ func (r *TSSSecretEphemeralResource) Open(ctx context.Context, req ephemeral.Ope
 	resp.RenewAt = time.Now().Add(5 * time.Minute)
 
 	// Store private data for use during renewal
-	privateData, _ := json.Marshal(TSSSecretPrivateData{
+	privateData, _ := json.Marshal(TssSecretPrivateData{
 		SecretID:    data.SecretID.ValueString(),
 		Field:       data.Field.ValueString(),
 		SecretValue: data.SecretValue.ValueString(),
@@ -148,7 +148,7 @@ func (r *TSSSecretEphemeralResource) Open(ctx context.Context, req ephemeral.Ope
 	resp.Private.SetKey(ctx, "tss_secret_data", privateData)
 }
 
-func (r *TSSSecretEphemeralResource) Renew(ctx context.Context, req ephemeral.RenewRequest, resp *ephemeral.RenewResponse) {
+func (r *TssSecretEphemeralResource) Renew(ctx context.Context, req ephemeral.RenewRequest, resp *ephemeral.RenewResponse) {
 	// Retrieve the private data that was stored during Open
 	privateBytes, _ := req.Private.GetKey(ctx, "tss_secret_data")
 	if privateBytes == nil {
@@ -157,7 +157,7 @@ func (r *TSSSecretEphemeralResource) Renew(ctx context.Context, req ephemeral.Re
 	}
 
 	// Unmarshal private data
-	var privateData TSSSecretPrivateData
+	var privateData TssSecretPrivateData
 	if err := json.Unmarshal(privateBytes, &privateData); err != nil {
 		resp.Diagnostics.AddError("Invalid Private Data", "Failed to unmarshal private data.")
 		return
@@ -212,5 +212,5 @@ func (r *TSSSecretEphemeralResource) Renew(ctx context.Context, req ephemeral.Re
 	resp.RenewAt = time.Now().Add(5 * time.Minute)
 }
 
-func (r *TSSSecretEphemeralResource) Close(ctx context.Context, req ephemeral.CloseRequest, resp *ephemeral.CloseResponse) {
+func (r *TssSecretEphemeralResource) Close(ctx context.Context, req ephemeral.CloseRequest, resp *ephemeral.CloseResponse) {
 }

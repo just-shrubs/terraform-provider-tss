@@ -13,26 +13,26 @@ import (
 )
 
 // With the datasource.DataSource implementation
-func TSSSecretDataSource() datasource.DataSource {
-	return &TSSSecretDataSource{}
+func NewTssSecretDataSource() datasource.DataSource {
+	return &TssSecretDataSource{}
 }
 
-// TSSSecretDataSource defines the data source implementation
-type TSSSecretDataSource struct {
+// TssSecretDataSource defines the data source implementation
+type TssSecretDataSource struct {
 	client *server.Server // Store the provider configuration
 }
 
 // Metadata provides the data source type name
-func (d *TSSSecretDataSource) Metadata(ctx context.Context, req datasource.MetadataRequest, resp *datasource.MetadataResponse) {
+func (d *TssSecretDataSource) Metadata(ctx context.Context, req datasource.MetadataRequest, resp *datasource.MetadataResponse) {
 	resp.TypeName = "tss_secret"
-	tflog.Trace(ctx, "TSSSecretDataSource metadata configured", map[string]interface{}{
+	tflog.Trace(ctx, "TssSecretDataSource metadata configured", map[string]interface{}{
 		"type_name": "tss_secret",
 	})
 }
 
 // Schema defines the schema for the data source
-func (d *TSSSecretDataSource) Schema(ctx context.Context, req datasource.SchemaRequest, resp *datasource.SchemaResponse) {
-	tflog.Trace(ctx, "Defining schema for TSSSecretDataSource")
+func (d *TssSecretDataSource) Schema(ctx context.Context, req datasource.SchemaRequest, resp *datasource.SchemaResponse) {
+	tflog.Trace(ctx, "Defining schema for TssSecretDataSource")
 
 	resp.Schema = schema.Schema{
 		Attributes: map[string]schema.Attribute{
@@ -54,8 +54,8 @@ func (d *TSSSecretDataSource) Schema(ctx context.Context, req datasource.SchemaR
 }
 
 // Configure initializes the data source with the provider configuration
-func (d *TSSSecretDataSource) Configure(ctx context.Context, req datasource.ConfigureRequest, resp *datasource.ConfigureResponse) {
-	tflog.Trace(ctx, "Configuring TSSSecretDataSource")
+func (d *TssSecretDataSource) Configure(ctx context.Context, req datasource.ConfigureRequest, resp *datasource.ConfigureResponse) {
+	tflog.Trace(ctx, "Configuring TssSecretDataSource")
 
 	if req.ProviderData == nil {
 		// IMPORTANT: This method is called MULTIPLE times. An initial call might not have configured the Provider yet, so we need
@@ -68,7 +68,7 @@ func (d *TSSSecretDataSource) Configure(ctx context.Context, req datasource.Conf
 	tflog.Debug(ctx, "Provider data received, attempting to configure")
 
 	client, ok := req.ProviderData.(*server.Server)
-	if !ok || config == nil {
+	if !ok || client == nil {
 		tflog.Error(ctx, "Invalid provider data type", map[string]interface{}{
 			"expected": "*server.Configuration",
 			"actual":   fmt.Sprintf("%T", req.ProviderData),
@@ -78,14 +78,14 @@ func (d *TSSSecretDataSource) Configure(ctx context.Context, req datasource.Conf
 	}
 
 	// Log the successfully retrieved configuration
-	tflog.Debug(ctx, "Successfully configured TSSSecretDataSource")
+	tflog.Debug(ctx, "Successfully configured TssSecretDataSource")
 
 	d.client = client
 }
 
 // Read retrieves the data for the data source
-func (d *TSSSecretDataSource) Read(ctx context.Context, req datasource.ReadRequest, resp *datasource.ReadResponse) {
-	tflog.Debug(ctx, "Reading TSSSecretDataSource")
+func (d *TssSecretDataSource) Read(ctx context.Context, req datasource.ReadRequest, resp *datasource.ReadResponse) {
+	tflog.Debug(ctx, "Reading TssSecretDataSource")
 
 	// Define the state structure
 	var state struct {

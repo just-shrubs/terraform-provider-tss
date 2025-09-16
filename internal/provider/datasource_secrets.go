@@ -12,26 +12,26 @@ import (
 )
 
 // With the datasource.DataSource implementation
-func TSSSecretsDataSource() datasource.DataSource {
-	return &TSSSecretsDataSource{}
+func NewTssSecretsDataSource() datasource.DataSource {
+	return &TssSecretsDataSource{}
 }
 
-// TSSSecretsDataSource defines the data source implementation
-type TSSSecretsDataSource struct {
+// TssSecretsDataSource defines the data source implementation
+type TssSecretsDataSource struct {
 	client *server.Server // Store the provider configuration
 }
 
 // Metadata provides the data source type name
-func (d *TSSSecretsDataSource) Metadata(ctx context.Context, req datasource.MetadataRequest, resp *datasource.MetadataResponse) {
+func (d *TssSecretsDataSource) Metadata(ctx context.Context, req datasource.MetadataRequest, resp *datasource.MetadataResponse) {
 	resp.TypeName = "tss_secrets"
-	tflog.Trace(ctx, "TSSSecretsDataSource metadata configured", map[string]interface{}{
+	tflog.Trace(ctx, "TssSecretsDataSource metadata configured", map[string]interface{}{
 		"type_name": "tss_secrets",
 	})
 }
 
 // Schema defines the schema for the data source
-func (d *TSSSecretsDataSource) Schema(ctx context.Context, req datasource.SchemaRequest, resp *datasource.SchemaResponse) {
-	tflog.Trace(ctx, "Defining schema for TSSSecretsDataSource")
+func (d *TssSecretsDataSource) Schema(ctx context.Context, req datasource.SchemaRequest, resp *datasource.SchemaResponse) {
+	tflog.Trace(ctx, "Defining schema for TssSecretsDataSource")
 
 	resp.Schema = schema.Schema{
 		Attributes: map[string]schema.Attribute{
@@ -66,8 +66,8 @@ func (d *TSSSecretsDataSource) Schema(ctx context.Context, req datasource.Schema
 }
 
 // Configure initializes the data source with the provider configuration
-func (d *TSSSecretsDataSource) Configure(ctx context.Context, req datasource.ConfigureRequest, resp *datasource.ConfigureResponse) {
-	tflog.Trace(ctx, "Configuring TSSSecretsDataSource")
+func (d *TssSecretsDataSource) Configure(ctx context.Context, req datasource.ConfigureRequest, resp *datasource.ConfigureResponse) {
+	tflog.Trace(ctx, "Configuring TssSecretsDataSource")
 
 	if req.ProviderData == nil {
 		// IMPORTANT: This method is called MULTIPLE times. An initial call might not have configured the Provider yet, so we need
@@ -92,11 +92,11 @@ func (d *TSSSecretsDataSource) Configure(ctx context.Context, req datasource.Con
 
 	// Store the provider configuration in the data source
 	d.client = client
-	tflog.Debug(ctx, "Successfully configured TSSSecretsDataSource")
+	tflog.Debug(ctx, "Successfully configured TssSecretsDataSource")
 }
 
-func (d *TSSSecretsDataSource) Read(ctx context.Context, req datasource.ReadRequest, resp *datasource.ReadResponse) {
-	tflog.Debug(ctx, "Reading TSSSecretsDataSource")
+func (d *TssSecretsDataSource) Read(ctx context.Context, req datasource.ReadRequest, resp *datasource.ReadResponse) {
+	tflog.Debug(ctx, "Reading TssSecretsDataSource")
 
 	var state struct {
 		IDs     []types.Int64 `tfsdk:"ids"`
@@ -124,7 +124,7 @@ func (d *TSSSecretsDataSource) Read(ctx context.Context, req datasource.ReadRequ
 		return
 	}
 
-	tflog.Info(ctx, "Fetching multiple secrets from TSS", map[string]interface{}{
+	tflog.Info(ctx, "Fetching multiple secrets from Tss", map[string]interface{}{
 		"count": len(state.IDs),
 		"field": state.Field.ValueString(),
 	})
@@ -134,6 +134,9 @@ func (d *TSSSecretsDataSource) Read(ctx context.Context, req datasource.ReadRequ
 		ID    types.Int64  `tfsdk:"id"`
 		Value types.String `tfsdk:"value"`
 	}
+
+	successCount := 0
+	failedCount := 0
 
 	for _, id := range state.IDs {
 		secretID := int(id.ValueInt64())
@@ -150,6 +153,7 @@ func (d *TSSSecretsDataSource) Read(ctx context.Context, req datasource.ReadRequ
 				"error":     err.Error(),
 			})
 			resp.Diagnostics.AddWarning("Secret Fetch Warning", fmt.Sprintf("Failed to fetch secret with ID %d: %s", secretID, err))
+			failedCount++
 			continue // Skip this ID and continue with the rest
 		}
 
@@ -169,6 +173,7 @@ func (d *TSSSecretsDataSource) Read(ctx context.Context, req datasource.ReadRequ
 				"field":     fieldName,
 			})
 			resp.Diagnostics.AddError("Field Not Found", fmt.Sprintf("The secret does not contain the field '%s'", fieldName))
+			failedCount++
 			continue
 		}
 
@@ -185,6 +190,7 @@ func (d *TSSSecretsDataSource) Read(ctx context.Context, req datasource.ReadRequ
 			ID:    types.Int64Value(int64(secretID)),
 			Value: types.StringValue(fieldValue),
 		})
+		successCount++
 	}
 
 	tflog.Info(ctx, "Completed fetching secrets", map[string]interface{}{
@@ -204,5 +210,5 @@ func (d *TSSSecretsDataSource) Read(ctx context.Context, req datasource.ReadRequ
 		return
 	}
 
-	tflog.Debug(ctx, "TSSSecretsDataSource read completed successfully")
+	tflog.Debug(ctx, "TssSecretsDataSource read completed successfully")
 }

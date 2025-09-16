@@ -16,12 +16,12 @@ import (
 
 // Ensure the provider implements the ProviderWithEphemeralResources interface
 var (
-	_ provider.Provider                       = &TSSProvider{}
-	_ provider.ProviderWithEphemeralResources = (*TSSProvider)(nil)
+	_ provider.Provider                       = &TssProvider{}
+	_ provider.ProviderWithEphemeralResources = (*TssProvider)(nil)
 )
 
 // Define the provider structure
-type TSSProvider struct {
+type TssProvider struct {
 	// version is set to the provider version on release, "dev" when the
 	// provider is built and ran locally, and "test" when running acceptance
 	// testing.
@@ -29,7 +29,7 @@ type TSSProvider struct {
 }
 
 // Define the provider schema model
-type TSSProviderModel struct {
+type TssProviderModel struct {
 	ServerURL types.String `tfsdk:"server_url"`
 	Username  types.String `tfsdk:"username"`
 	Password  types.String `tfsdk:"password"`
@@ -37,17 +37,17 @@ type TSSProviderModel struct {
 }
 
 // Metadata returns the provider type name
-func (p *TSSProvider) Metadata(ctx context.Context, req provider.MetadataRequest, resp *provider.MetadataResponse) {
+func (p *TssProvider) Metadata(ctx context.Context, req provider.MetadataRequest, resp *provider.MetadataResponse) {
 	resp.TypeName = "tss"
-	tflog.Trace(ctx, "TSSProvider metadata configured", map[string]interface{}{
+	tflog.Trace(ctx, "TssProvider metadata configured", map[string]interface{}{
 		"type_name": "tss",
 		"version":   p.version,
 	})
 }
 
 // Schema defines the provider-level schema
-func (p *TSSProvider) Schema(ctx context.Context, req provider.SchemaRequest, resp *provider.SchemaResponse) {
-	tflog.Trace(ctx, "Defining schema for TSSProvider")
+func (p *TssProvider) Schema(ctx context.Context, req provider.SchemaRequest, resp *provider.SchemaResponse) {
+	tflog.Trace(ctx, "Defining schema for TssProvider")
 
 	resp.Schema = schema.Schema{
 		Attributes: map[string]schema.Attribute{
@@ -73,7 +73,7 @@ func (p *TSSProvider) Schema(ctx context.Context, req provider.SchemaRequest, re
 }
 
 // Configure initializes the provider with the given configuration
-func (p *TSSProvider) Configure(ctx context.Context, req provider.ConfigureRequest, resp *provider.ConfigureResponse) {
+func (p *TssProvider) Configure(ctx context.Context, req provider.ConfigureRequest, resp *provider.ConfigureResponse) {
 	tflog.Info(ctx, "Configuring TSS provider")
 
 	serverUrl := os.Getenv("TSS_SERVER_URL")
@@ -88,7 +88,7 @@ func (p *TSSProvider) Configure(ctx context.Context, req provider.ConfigureReque
 		"has_domain":     domain != "",
 	})
 
-	var data TSSProviderModel
+	var data TssProviderModel
 
 	// Read configuration values into the config struct
 	resp.Diagnostics.Append(req.Config.Get(ctx, &data)...)
@@ -202,34 +202,34 @@ func (p *TSSProvider) Configure(ctx context.Context, req provider.ConfigureReque
 }
 
 // DataSources returns the data sources supported by the provider
-func (p *TSSProvider) DataSources(ctx context.Context) []func() datasource.DataSource {
+func (p *TssProvider) DataSources(ctx context.Context) []func() datasource.DataSource {
 	tflog.Trace(ctx, "Registering TSS data sources")
 	return []func() datasource.DataSource{
-		TSSSecretDataSource,
-		TSSSecretsDataSource,
+		NewTssSecretDataSource,
+		NewTssSecretsDataSource,
 	}
 }
 
 // Resources returns the resources supported by the provider
-func (p *TSSProvider) Resources(ctx context.Context) []func() resource.Resource {
+func (p *TssProvider) Resources(ctx context.Context) []func() resource.Resource {
 	tflog.Trace(ctx, "Registering TSS resources")
 	return []func() resource.Resource{
-		NewTSSSecretResource,
+		NewTssSecretResource,
 	}
 }
 
-func (p *TSSProvider) EphemeralResources(ctx context.Context) []func() ephemeral.EphemeralResource {
+func (p *TssProvider) EphemeralResources(ctx context.Context) []func() ephemeral.EphemeralResource {
 	tflog.Trace(ctx, "Registering TSS ephemeral resources")
 	return []func() ephemeral.EphemeralResource{
-		TSSSecretEphemeralResource,
-		TSSSecretsEphemeralResource,
+		NewTssSecretEphemeralResource,
+		NewTssSecretsEphemeralResource,
 	}
 }
 
 // New returns a new instance of the provider
 func New(version string) func() provider.Provider {
 	return func() provider.Provider {
-		return &TSSProvider{
+		return &TssProvider{
 			version: version,
 		}
 	}

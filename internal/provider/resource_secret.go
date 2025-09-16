@@ -19,18 +19,18 @@ import (
 
 // Ensure the implementation satisfies the expected interfaces.
 var (
-	_ resource.Resource                = &TSSSecretResource{}
-	_ resource.ResourceWithConfigure   = &TSSSecretResource{}
-	_ resource.ResourceWithImportState = &TSSSecretResource{}
+	_ resource.Resource                = &TssSecretResource{}
+	_ resource.ResourceWithConfigure   = &TssSecretResource{}
+	_ resource.ResourceWithImportState = &TssSecretResource{}
 )
 
-// NewTSSecretResource is a helper function to simplify the provider implementation.
-func NewTSSSecretResource() resource.Resource {
-	return &TSSSecretResource{}
+// NewTssecretResource is a helper function to simplify the provider implementation.
+func NewTssSecretResource() resource.Resource {
+	return &TssSecretResource{}
 }
 
-// TSSSecretResource defines the resource implementation
-type TSSSecretResource struct {
+// TssSecretResource defines the resource implementation
+type TssSecretResource struct {
 	client *server.Server
 }
 
@@ -83,16 +83,16 @@ type SshKeyArgs struct {
 }
 
 // Metadata provides the resource type name
-func (r *TSSSecretResource) Metadata(ctx context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
+func (r *TssSecretResource) Metadata(ctx context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
 	resp.TypeName = "tss_resource_secret"
-	tflog.Trace(ctx, "TSSSecretResource metadata configured", map[string]interface{}{
+	tflog.Trace(ctx, "TssSecretResource metadata configured", map[string]interface{}{
 		"type_name": "tss_resource_secret",
 	})
 }
 
 // Schema defines the schema for the resource
-func (r *TSSSecretResource) Schema(ctx context.Context, req resource.SchemaRequest, resp *resource.SchemaResponse) {
-	tflog.Trace(ctx, "Defining schema for TSSSecretResource")
+func (r *TssSecretResource) Schema(ctx context.Context, req resource.SchemaRequest, resp *resource.SchemaResponse) {
+	tflog.Trace(ctx, "Defining schema for TssSecretResource")
 
 	resp.Schema = schema.Schema{
 		Attributes: map[string]schema.Attribute{
@@ -279,12 +279,12 @@ func (r *TSSSecretResource) Schema(ctx context.Context, req resource.SchemaReque
 			},
 		},
 	}
-	tflog.Debug(ctx, "Schema definition complete for TSSSecretResource")
+	tflog.Debug(ctx, "Schema definition complete for TssSecretResource")
 }
 
 // Configure initializes the resource with the provider configuration
-func (r *TSSSecretResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
-	tflog.Trace(ctx, "Starting TSSSecretResource.Configure")
+func (r *TssSecretResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
+	tflog.Trace(ctx, "Configuring TssSecretResource")
 	if req.ProviderData == nil {
 		tflog.Debug(ctx, "Provider data is nil, skipping configuration")
 		return
@@ -304,12 +304,12 @@ func (r *TSSSecretResource) Configure(ctx context.Context, req resource.Configur
 
 	// Store the provider configuration in the resource
 	r.client = client
-	tflog.Info(ctx, "TSSSecretResource.Configure completed successfully")
+	tflog.Info(ctx, "Configuring TssSecretResource completed successfully")
 }
 
 // Create creates the resource
-func (r *TSSSecretResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
-	tflog.Info(ctx, "Starting TSSSecretResource.Create")
+func (r *TssSecretResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
+	tflog.Info(ctx, "Creating TssSecretResource")
 	var plan SecretResourceState
 
 	// Read the configuration
@@ -431,14 +431,14 @@ func (r *TSSSecretResource) Create(ctx context.Context, req resource.CreateReque
 		return
 	}
 
-	tflog.Info(ctx, "TSSSecretResource.Create completed successfully", map[string]interface{}{
+	tflog.Info(ctx, "Creating TssSecretResource completed successfully", map[string]interface{}{
 		"id":   stringCreatedSecret,
 		"name": createdSecret.Name,
 	})
 }
 
-func (r *TSSSecretResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
-	tflog.Debug(ctx, "Starting TSSSecretResource.Read")
+func (r *TssSecretResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
+	tflog.Debug(ctx, "Reading TssSecretResource")
 	var state SecretResourceState
 
 	// Read the state
@@ -537,8 +537,8 @@ func (r *TSSSecretResource) Read(ctx context.Context, req resource.ReadRequest, 
 }
 
 // Update updates the resource
-func (r *TSSSecretResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
-	tflog.Info(ctx, "Starting TSSSecretResource.Update")
+func (r *TssSecretResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
+	tflog.Info(ctx, "Updating TssSecretResource")
 	var plan SecretResourceState
 	var state SecretResourceState
 
@@ -750,8 +750,8 @@ func (r *TSSSecretResource) Update(ctx context.Context, req resource.UpdateReque
 }
 
 // Delete deletes the resource
-func (r *TSSSecretResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
-	tflog.Info(ctx, "Starting TSSSecretResource.Delete")
+func (r *TssSecretResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
+	tflog.Info(ctx, "Deleting TSS secret")
 	var state SecretResourceState
 
 	// Read the state
@@ -803,13 +803,13 @@ func (r *TSSSecretResource) Delete(ctx context.Context, req resource.DeleteReque
 		return
 	}
 
-	tflog.Info(ctx, "TSSSecretResource.Delete completed successfully", map[string]interface{}{
+	tflog.Info(ctx, "TssSecretResource.Delete completed successfully", map[string]interface{}{
 		"id":   idtoi,
 		"name": name,
 	})
 }
 
-func (r *TSSSecretResource) readSecretByID(ctx context.Context, id string) (*SecretResourceState, diag.Diagnostics) {
+func (r *TssSecretResource) readSecretByID(ctx context.Context, id string) (*SecretResourceState, diag.Diagnostics) {
 	tflog.Debug(ctx, "Reading secret by ID", map[string]interface{}{
 		"id": id,
 	})
@@ -854,7 +854,7 @@ func (r *TSSSecretResource) readSecretByID(ctx context.Context, id string) (*Sec
 	return state, nil
 }
 
-func (r *TSSSecretResource) getSecretData(ctx context.Context, state *SecretResourceState, client *server.Server) (*server.Secret, error) {
+func (r *TssSecretResource) getSecretData(ctx context.Context, state *SecretResourceState, client *server.Server) (*server.Secret, error) {
 	tflog.Debug(ctx, "Preparing secret data from state")
 
 	// Convert string attributes to integers
@@ -1255,8 +1255,8 @@ func shouldComputeSshKeyValue(req planmodifier.StringRequest) bool {
 }
 
 // Support import of Secret Resources via ID
-func (r *TSSSecretResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
-	tflog.Trace(ctx, "Starting TSSSecretResource.ImportState", map[string]interface{}{
+func (r *TssSecretResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
+	tflog.Trace(ctx, "Starting TssSecretResource.ImportState", map[string]interface{}{
 		"import id": req.ID,
 	})
 
