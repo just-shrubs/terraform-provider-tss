@@ -132,7 +132,7 @@ func (p *TssProvider) Configure(ctx context.Context, req provider.ConfigureReque
 		resp.Diagnostics.AddError(
 			"Missing Server URL Configuration",
 			"While configuring the provider, the Server URL was not found in "+
-				"the TSS_SEVRER_URL environment variable or provider "+
+				"the TSS_SERVER_URL environment variable or provider "+
 				"configuration block server_url attribute.",
 		)
 		// Not returning early allows the logic to collect all errors.
