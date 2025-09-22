@@ -850,7 +850,8 @@ func (r *TssSecretResource) generatePassword(ctx context.Context, state *SecretR
 	for i, field := range secret.Fields {
 		var templateField *server.SecretTemplateField
 		for _, tf := range template.Fields {
-			if tf.SecretTemplateFieldID == field.FieldID ||
+			// Only match by FieldID if it's non-zero
+			if (field.FieldID > 0 && tf.SecretTemplateFieldID == field.FieldID) ||
 				strings.EqualFold(tf.Name, field.FieldName) ||
 				strings.EqualFold(tf.FieldSlugName, field.FieldName) {
 				templateField = &tf
@@ -979,18 +980,37 @@ func (r *TssSecretResource) getSecretData(ctx context.Context, state *SecretReso
 	// Construct the fields dynamically
 	var fields []server.SecretField
 	for _, field := range state.Fields {
-		templateField := server.SecretTemplateField{}
 		fieldName := field.FieldName.ValueString()
 
-		// Match the field name with the template fields
+		// Find the matching template field
+		var templateField server.SecretTemplateField
+		foundField := false
+
 		for _, record := range template.Fields {
 			if strings.EqualFold(record.Name, fieldName) || strings.EqualFold(record.FieldSlugName, fieldName) {
-				templateField = record
+				templateField = record // Not &record, just record
+				foundField = true
 				tflog.Trace(ctx, "Matched field with template", map[string]interface{}{
-					"field": fieldName,
+					"field":             fieldName,
+					"template_field_id": record.SecretTemplateFieldID,
 				})
 				break
 			}
+		}
+
+		// Validate that we found a matching template field
+		if !foundField {
+			tflog.Error(ctx, "Field not found in template", map[string]interface{}{
+				"field": fieldName,
+				"available_fields": func() []string {
+					names := make([]string, len(template.Fields))
+					for i, f := range template.Fields {
+						names[i] = fmt.Sprintf("%s (slug: %s, id: %d)", f.Name, f.FieldSlugName, f.SecretTemplateFieldID)
+					}
+					return names
+				}(),
+			})
+			return nil, fmt.Errorf("field '%s' not found in secret template", fieldName)
 		}
 
 		// Handle field values appropriately - all optional fields should accept null or empty values
@@ -1020,26 +1040,24 @@ func (r *TssSecretResource) getSecretData(ctx context.Context, state *SecretReso
 			FieldDescription: templateField.Description,
 			FieldID:          templateField.SecretTemplateFieldID,
 			FieldName:        templateField.Name,
-			FileAttachmentID: func() int {
-				if !field.ItemValue.IsNull() && field.ItemValue.ValueString() != "" {
-					value, err := strconv.Atoi(field.ItemValue.ValueString())
-					if err == nil {
-						return value
-					}
-				}
-				return 0
-			}(),
-			IsFile:     templateField.IsFile,
-			IsNotes:    templateField.IsNotes,
-			IsPassword: templateField.IsPassword,
-			ItemValue:  itemValue,
-			Slug:       templateField.FieldSlugName,
+			FileAttachmentID: 0,
+			IsFile:           templateField.IsFile,
+			IsNotes:          templateField.IsNotes,
+			IsPassword:       templateField.IsPassword,
+			ItemValue:        itemValue,
+			Slug:             templateField.FieldSlugName,
 		}
 
 		// For file attachments, preserve the FileAttachmentID and Filename
-		if !field.IsFile.IsNull() && field.IsFile.ValueBool() {
-			secretField.FileAttachmentID = int(field.FileAttachmentID.ValueInt64())
-			secretField.Filename = field.Filename.ValueString()
+		if templateField.IsFile || (!field.IsFile.IsNull() && field.IsFile.ValueBool()) {
+			if !field.FileAttachmentID.IsNull() {
+				secretField.FileAttachmentID = int(field.FileAttachmentID.ValueInt64())
+			}
+
+			if !field.Filename.IsNull() {
+				secretField.Filename = field.Filename.ValueString()
+			}
+
 			tflog.Trace(ctx, "Preserved file attachment info", map[string]interface{}{
 				"field":    fieldName,
 				"filename": secretField.Filename,
