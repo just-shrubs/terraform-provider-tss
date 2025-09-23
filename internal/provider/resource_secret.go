@@ -209,9 +209,11 @@ func (r *TssSecretResource) Schema(ctx context.Context, req resource.SchemaReque
 						"itemvalue": schema.StringAttribute{
 							Optional:    true,
 							Computed:    true,
+							Sensitive:   true,
 							Description: "The value of the field. For SSH key generation, this will be computed by the server.",
 							PlanModifiers: []planmodifier.String{
 								sshKeyFieldPlanModifier{},
+								passwordFieldPlanModifier{},
 								stringplanmodifier.UseStateForUnknown(),
 							},
 						},
@@ -342,7 +344,7 @@ func (r *TssSecretResource) Create(ctx context.Context, req resource.CreateReque
 
 	// Get the secret data
 	tflog.Debug(ctx, "Preparing secret data for creation")
-	newSecret, err := r.getSecretData(ctx, &plan, r.client)
+	newSecret, err := r.generatePassword(ctx, &plan, r.client)
 	if err != nil {
 		tflog.Error(ctx, "Failed to prepare secret data", map[string]interface{}{
 			"error": err.Error(),
@@ -377,8 +379,6 @@ func (r *TssSecretResource) Create(ctx context.Context, req resource.CreateReque
 		"id":   stringCreatedSecret,
 		"name": createdSecret.Name,
 	})
-
-	fmt.Printf("Secret is Created successfully...!")
 
 	// Refresh state - let Terraform accept the computed values from the server
 	tflog.Debug(ctx, "Refreshing state with created secret data")
@@ -601,9 +601,22 @@ func (r *TssSecretResource) Update(ctx context.Context, req resource.UpdateReque
 	// If we have SSH key fields, preserve the existing values from the current state
 	for i, field := range updatedSecret.Fields {
 		fieldName := field.FieldName
-		if hasSshKeyArgs && (strings.Contains(strings.ToLower(fieldName), "key") ||
-			strings.Contains(strings.ToLower(fieldName), "passphrase")) {
-			// For secrets with SSH keys, preserve the server-generated values
+
+		isSSHKeyField := hasSshKeyArgs && (strings.Contains(strings.ToLower(fieldName), "key") ||
+			strings.Contains(strings.ToLower(fieldName), "passphrase"))
+
+		isPasswordField := false
+		// For secrets with SSH keys, preserve the server-generated values
+		for _, stateField := range state.Fields {
+			if strings.EqualFold(stateField.FieldName.ValueString(), fieldName) {
+				if !stateField.IsPassword.IsNull() && stateField.IsPassword.ValueBool() {
+					isPasswordField = true
+				}
+				break
+			}
+		}
+
+		if isSSHKeyField || isPasswordField {
 			for _, stateField := range state.Fields {
 				if strings.EqualFold(stateField.FieldName.ValueString(), fieldName) {
 					// Check if the plan specifically wants to update this field
@@ -618,9 +631,9 @@ func (r *TssSecretResource) Update(ctx context.Context, req resource.UpdateReque
 								tflog.Trace(ctx, "Preserving SSH field value", map[string]interface{}{
 									"field": fieldName,
 								})
-							} else {
+							} else if !isPasswordField || planField.ItemValue.ValueString() != "" {
 								// Plan is updating this field, use new value
-								tflog.Debug(ctx, "Updating SSH field with new value", map[string]interface{}{
+								tflog.Debug(ctx, "Updating field with new value", map[string]interface{}{
 									"field": fieldName,
 								})
 							}
@@ -667,6 +680,7 @@ func (r *TssSecretResource) Update(ctx context.Context, req resource.UpdateReque
 		"id":   ustoi,
 		"name": updatedSecret.Name,
 	})
+
 	_, err = r.client.UpdateSecret(*updatedSecret)
 	if err != nil {
 		tflog.Error(ctx, "Failed to update secret in TSS", map[string]interface{}{
@@ -721,8 +735,6 @@ func (r *TssSecretResource) Update(ctx context.Context, req resource.UpdateReque
 							"field":    fieldName,
 							"filename": stateField.Filename.ValueString(),
 						})
-						fmt.Printf("[DEBUG] Preserved filename %s for field %s from state\n",
-							stateField.Filename.ValueString(), fieldName)
 					}
 					break
 				}
@@ -734,8 +746,6 @@ func (r *TssSecretResource) Update(ctx context.Context, req resource.UpdateReque
 					if planField.FieldName.ValueString() == fieldName {
 						if !planField.Filename.IsNull() && planField.Filename.ValueString() != "" {
 							newState.Fields[i].Filename = planField.Filename
-							fmt.Printf("[DEBUG] Preserved filename %s for field %s from plan\n",
-								planField.Filename.ValueString(), fieldName)
 						}
 						break
 					}
@@ -809,10 +819,77 @@ func (r *TssSecretResource) Delete(ctx context.Context, req resource.DeleteReque
 	})
 }
 
+// Support import of Secret Resources via ID
+func (r *TssSecretResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
+	tflog.Trace(ctx, "Starting ImportState", map[string]interface{}{
+		"import id": req.ID,
+	})
+
+	// Retrieve import ID and save to id attribute
+	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
+}
+
+func (r *TssSecretResource) generatePassword(ctx context.Context, state *SecretResourceState, client *server.Server) (*server.Secret, error) {
+	tflog.Debug(ctx, "Preparing secret data with password generation")
+
+	secret, err := r.getSecretData(ctx, state, client)
+	if err != nil {
+		return nil, err
+	}
+
+	templateID, err := strconv.Atoi(state.SecretTemplateID.ValueString())
+	if err != nil {
+		return nil, fmt.Errorf("invalid Template ID: %w", err)
+	}
+
+	template, err := client.SecretTemplate(templateID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to retrieve secret template: %w", err)
+	}
+
+	for i, field := range secret.Fields {
+		var templateField *server.SecretTemplateField
+		for _, tf := range template.Fields {
+			// Only match by FieldID if it's non-zero
+			if (field.FieldID > 0 && tf.SecretTemplateFieldID == field.FieldID) ||
+				strings.EqualFold(tf.Name, field.FieldName) ||
+				strings.EqualFold(tf.FieldSlugName, field.FieldName) {
+				templateField = &tf
+				break
+			}
+		}
+
+		if templateField != nil && templateField.IsPassword {
+			if field.ItemValue == "" {
+				generatedPassword, err := client.GeneratePassword(templateField.FieldSlugName, template)
+				if err != nil {
+					tflog.Error(ctx, "Failed to generate password", map[string]interface{}{
+						"field": field.FieldName,
+						"error": err.Error(),
+					})
+					return nil, fmt.Errorf("failed to generate password for field %s: %w", field.FieldName, err)
+				}
+
+				secret.Fields[i].ItemValue = generatedPassword
+				tflog.Debug(ctx, "Generated password for field", map[string]interface{}{
+					"field": field.FieldName,
+				})
+			} else {
+				tflog.Debug(ctx, "Using provided password for field", map[string]interface{}{
+					"field": field.FieldName,
+				})
+			}
+		}
+	}
+
+	return secret, nil
+}
+
 func (r *TssSecretResource) readSecretByID(ctx context.Context, id string) (*SecretResourceState, diag.Diagnostics) {
 	tflog.Debug(ctx, "Reading secret by ID", map[string]interface{}{
 		"id": id,
 	})
+
 	secretID, err := strconv.Atoi(id)
 	if err != nil {
 		tflog.Error(ctx, "Invalid secret ID format", map[string]interface{}{
@@ -823,6 +900,7 @@ func (r *TssSecretResource) readSecretByID(ctx context.Context, id string) (*Sec
 			diag.NewErrorDiagnostic("Secret Conversion Error", fmt.Sprintf("invalid secret ID: %s", err)),
 		}
 	}
+
 	// Retrieve the secret using the provided client
 	secret, err := r.client.Secret(secretID)
 	if err != nil {
@@ -902,18 +980,37 @@ func (r *TssSecretResource) getSecretData(ctx context.Context, state *SecretReso
 	// Construct the fields dynamically
 	var fields []server.SecretField
 	for _, field := range state.Fields {
-		templateField := server.SecretTemplateField{}
 		fieldName := field.FieldName.ValueString()
 
-		// Match the field name with the template fields
+		// Find the matching template field
+		var templateField server.SecretTemplateField
+		foundField := false
+
 		for _, record := range template.Fields {
 			if strings.EqualFold(record.Name, fieldName) || strings.EqualFold(record.FieldSlugName, fieldName) {
-				templateField = record
+				templateField = record // Not &record, just record
+				foundField = true
 				tflog.Trace(ctx, "Matched field with template", map[string]interface{}{
-					"field": fieldName,
+					"field":             fieldName,
+					"template_field_id": record.SecretTemplateFieldID,
 				})
 				break
 			}
+		}
+
+		// Validate that we found a matching template field
+		if !foundField {
+			tflog.Error(ctx, "Field not found in template", map[string]interface{}{
+				"field": fieldName,
+				"available_fields": func() []string {
+					names := make([]string, len(template.Fields))
+					for i, f := range template.Fields {
+						names[i] = fmt.Sprintf("%s (slug: %s, id: %d)", f.Name, f.FieldSlugName, f.SecretTemplateFieldID)
+					}
+					return names
+				}(),
+			})
+			return nil, fmt.Errorf("field '%s' not found in secret template", fieldName)
 		}
 
 		// Handle field values appropriately - all optional fields should accept null or empty values
@@ -943,26 +1040,24 @@ func (r *TssSecretResource) getSecretData(ctx context.Context, state *SecretReso
 			FieldDescription: templateField.Description,
 			FieldID:          templateField.SecretTemplateFieldID,
 			FieldName:        templateField.Name,
-			FileAttachmentID: func() int {
-				if !field.ItemValue.IsNull() && field.ItemValue.ValueString() != "" {
-					value, err := strconv.Atoi(field.ItemValue.ValueString())
-					if err == nil {
-						return value
-					}
-				}
-				return 0
-			}(),
-			IsFile:     templateField.IsFile,
-			IsNotes:    templateField.IsNotes,
-			IsPassword: templateField.IsPassword,
-			ItemValue:  itemValue,
-			Slug:       templateField.FieldSlugName,
+			FileAttachmentID: 0,
+			IsFile:           templateField.IsFile,
+			IsNotes:          templateField.IsNotes,
+			IsPassword:       templateField.IsPassword,
+			ItemValue:        itemValue,
+			Slug:             templateField.FieldSlugName,
 		}
 
 		// For file attachments, preserve the FileAttachmentID and Filename
-		if !field.IsFile.IsNull() && field.IsFile.ValueBool() {
-			secretField.FileAttachmentID = int(field.FileAttachmentID.ValueInt64())
-			secretField.Filename = field.Filename.ValueString()
+		if templateField.IsFile || (!field.IsFile.IsNull() && field.IsFile.ValueBool()) {
+			if !field.FileAttachmentID.IsNull() {
+				secretField.FileAttachmentID = int(field.FileAttachmentID.ValueInt64())
+			}
+
+			if !field.Filename.IsNull() {
+				secretField.Filename = field.Filename.ValueString()
+			}
+
 			tflog.Trace(ctx, "Preserved file attachment info", map[string]interface{}{
 				"field":    fieldName,
 				"filename": secretField.Filename,
@@ -1254,12 +1349,55 @@ func shouldComputeSshKeyValue(req planmodifier.StringRequest) bool {
 	return req.PlanValue.ValueString() == ""
 }
 
-// Support import of Secret Resources via ID
-func (r *TssSecretResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
-	tflog.Trace(ctx, "Starting TssSecretResource.ImportState", map[string]interface{}{
-		"import id": req.ID,
-	})
+// passwordFieldPlanModifier is a custom plan modifier for password fields
+type passwordFieldPlanModifier struct{}
 
-	// Retrieve import ID and save to id attribute
-	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
+func (m passwordFieldPlanModifier) Description(ctx context.Context) string {
+	return "If the field is a password and no value is provided, mark as unknown so it can be computed by the server."
+}
+
+func (m passwordFieldPlanModifier) MarkdownDescription(ctx context.Context) string {
+	return "If the field is a password and no value is provided, mark as unknown so it can be computed by the server."
+}
+
+func (m passwordFieldPlanModifier) PlanModifyString(ctx context.Context, req planmodifier.StringRequest, resp *planmodifier.StringResponse) {
+	tflog.Trace(ctx, "Running password field plan modifier")
+
+	if !req.ConfigValue.IsNull() && req.ConfigValue.ValueString() != "" {
+		tflog.Debug(ctx, "Using explicit config value for password field")
+		resp.PlanValue = req.ConfigValue
+		return
+	}
+
+	if req.State.Raw.IsNull() && (req.PlanValue.IsNull() || req.PlanValue.ValueString() == "") {
+		if shouldComputePasswordValue(req) {
+			tflog.Debug(ctx, "Marking password field as computed for generation")
+			resp.PlanValue = types.StringUnknown()
+			return
+		}
+	}
+
+	if !req.State.Raw.IsNull() && (req.PlanValue.IsNull() || req.PlanValue.ValueString() == "") {
+		tflog.Debug(ctx, "Preserving existing password value during update")
+		resp.PlanValue = req.StateValue
+		return
+	}
+
+	resp.PlanValue = req.PlanValue
+}
+
+func shouldComputePasswordValue(req planmodifier.StringRequest) bool {
+	ctx := context.Background()
+
+	if !req.State.Raw.IsNull() {
+		tflog.Trace(ctx, "Not a create operation, won't compute password value")
+		return false
+	}
+
+	if req.ConfigValue.IsNull() == false && req.ConfigValue.ValueString() == "" {
+		tflog.Trace(ctx, "User explicitly set empty password, not generating")
+		return false
+	}
+
+	return true
 }
