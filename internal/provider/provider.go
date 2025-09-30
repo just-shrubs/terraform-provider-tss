@@ -38,7 +38,7 @@ type TssProviderModel struct {
 
 // Metadata returns the provider type name
 func (p *TssProvider) Metadata(ctx context.Context, req provider.MetadataRequest, resp *provider.MetadataResponse) {
-	resp.TypeName = "tss"
+	resp.TypeName = "dept-tss"
 	tflog.Trace(ctx, "TssProvider metadata configured", map[string]interface{}{
 		"type_name": "tss",
 		"version":   p.version,
@@ -77,7 +77,7 @@ func (p *TssProvider) Configure(ctx context.Context, req provider.ConfigureReque
 	tflog.Info(ctx, "Configuring TSS provider")
 
 	serverUrl := os.Getenv("TSS_SERVER_URL")
-	username := os.Getenv("TSS_USERNAME")
+	username := os.Getenv("TSS_USER")
 	password := os.Getenv("TSS_PASSWORD")
 	domain := os.Getenv("TSS_DOMAIN")
 
