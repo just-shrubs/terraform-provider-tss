@@ -84,9 +84,9 @@ type SshKeyArgs struct {
 
 // Metadata provides the resource type name
 func (r *TssSecretResource) Metadata(ctx context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
-	resp.TypeName = "tss_resource_secret"
+	resp.TypeName = "dept-tss_resource_secret"
 	tflog.Trace(ctx, "TssSecretResource metadata configured", map[string]interface{}{
-		"type_name": "tss_resource_secret",
+		"type_name": resp.TypeName,
 	})
 }
 

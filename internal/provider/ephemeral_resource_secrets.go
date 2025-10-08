@@ -48,10 +48,10 @@ type TssSecretsPrivateData struct {
 }
 
 func (r *TssSecretsEphemeralResource) Metadata(ctx context.Context, req ephemeral.MetadataRequest, resp *ephemeral.MetadataResponse) {
+	resp.TypeName = "dept-tss_secrets"
 	tflog.Trace(ctx, "TssSecretsEphemeralResource metadata configured", map[string]interface{}{
-		"type_name": "tss_secrets",
+		"type_name": resp.TypeName,
 	})
-	resp.TypeName = "tss_secrets"
 }
 
 func (r *TssSecretsEphemeralResource) Schema(ctx context.Context, req ephemeral.SchemaRequest, resp *ephemeral.SchemaResponse) {

@@ -40,7 +40,7 @@ type TssProviderModel struct {
 func (p *TssProvider) Metadata(ctx context.Context, req provider.MetadataRequest, resp *provider.MetadataResponse) {
 	resp.TypeName = "dept-tss"
 	tflog.Trace(ctx, "TssProvider metadata configured", map[string]interface{}{
-		"type_name": "tss",
+		"type_name": resp.TypeName,
 		"version":   p.version,
 	})
 }

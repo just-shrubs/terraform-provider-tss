@@ -25,7 +25,7 @@ type TssSecretEphemeralResource struct {
 }
 
 func (r *TssSecretEphemeralResource) Metadata(ctx context.Context, req ephemeral.MetadataRequest, resp *ephemeral.MetadataResponse) {
-	resp.TypeName = "tss_secret"
+	resp.TypeName = "dept-tss_secret"
 }
 
 // Define the model for your resource state

@@ -24,9 +24,9 @@ type TssSecretDataSource struct {
 
 // Metadata provides the data source type name
 func (d *TssSecretDataSource) Metadata(ctx context.Context, req datasource.MetadataRequest, resp *datasource.MetadataResponse) {
-	resp.TypeName = "tss_secret"
+	resp.TypeName = "dept-tss_secret"
 	tflog.Trace(ctx, "TssSecretDataSource metadata configured", map[string]interface{}{
-		"type_name": "tss_secret",
+		"type_name": resp.TypeName,
 	})
 }
 
