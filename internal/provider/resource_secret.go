@@ -392,6 +392,9 @@ func (r *TssSecretResource) Create(ctx context.Context, req resource.CreateReque
 		return
 	}
 
+	tflog.Debug(ctx, "Reordering fields to match original state order")
+	newState.Fields = r.reorderFieldsToMatchPlan(ctx, plan.Fields, newState.Fields)
+
 	// Preserve the SSH key args from the plan since the server doesn't return them
 	if plan.SshKeyArgs != nil {
 		newState.SshKeyArgs = plan.SshKeyArgs
@@ -458,6 +461,9 @@ func (r *TssSecretResource) Read(ctx context.Context, req resource.ReadRequest, 
 		"name": state.Name.ValueString(),
 	})
 
+	// Store the original field order from the current state
+	originalFields := state.Fields
+
 	// Ensure the client configuration is set
 	if r.client == nil {
 		tflog.Error(ctx, "TSS client is not configured")
@@ -485,6 +491,9 @@ func (r *TssSecretResource) Read(ctx context.Context, req resource.ReadRequest, 
 		"name":        newState.Name.ValueString(),
 		"field_count": len(newState.Fields),
 	})
+
+	tflog.Debug(ctx, "Reordering fields to match original state order")
+	newState.Fields = r.reorderFieldsToMatchPlan(ctx, originalFields, newState.Fields)
 
 	// Preserve the SSH key args from the current state since the server doesn't return them
 	if state.SshKeyArgs != nil {
@@ -708,6 +717,9 @@ func (r *TssSecretResource) Update(ctx context.Context, req resource.UpdateReque
 		return
 	}
 
+	tflog.Debug(ctx, "Reordering fields to match original state order")
+	newState.Fields = r.reorderFieldsToMatchPlan(ctx, plan.Fields, newState.Fields)
+
 	// Preserve the SSH key args from the plan since the server doesn't return them
 	if plan.SshKeyArgs != nil {
 		newState.SshKeyArgs = plan.SshKeyArgs
@@ -817,6 +829,54 @@ func (r *TssSecretResource) Delete(ctx context.Context, req resource.DeleteReque
 		"id":   idtoi,
 		"name": name,
 	})
+}
+
+// reorderFieldsToMatchPlan reorders the fields from the server response
+// This prevents "inconsistent result" errors in workflows.
+func (r *TssSecretResource) reorderFieldsToMatchPlan(ctx context.Context, planFields []SecretField, stateFields []SecretField) []SecretField {
+	tflog.Debug(ctx, "Reordering fields to match plan")
+
+	// Create a map of state fields by field name for quick lookup
+	stateFieldMap := make(map[string]SecretField)
+	for _, field := range stateFields {
+		stateFieldMap[strings.ToLower(field.FieldName.ValueString())] = field
+	}
+
+	// Create result slice in the same order as plan
+	reorderedFields := make([]SecretField, 0, len(planFields))
+
+	for _, planField := range planFields {
+		fieldName := strings.ToLower(planField.FieldName.ValueString())
+		if stateField, exists := stateFieldMap[fieldName]; exists {
+			reorderedFields = append(reorderedFields, stateField)
+			tflog.Trace(ctx, "Matched field from state", map[string]interface{}{
+				"field": planField.FieldName.ValueString(),
+			})
+		} else {
+			tflog.Warn(ctx, "Field from plan not found in state", map[string]interface{}{
+				"field": planField.FieldName.ValueString(),
+			})
+		}
+	}
+
+	// Add any fields from state that weren't in the plan (shouldn't normally happen)
+	for _, stateField := range stateFields {
+		found := false
+		for _, reorderedField := range reorderedFields {
+			if strings.EqualFold(stateField.FieldName.ValueString(), reorderedField.FieldName.ValueString()) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			tflog.Warn(ctx, "Field from state not in plan, appending", map[string]interface{}{
+				"field": stateField.FieldName.ValueString(),
+			})
+			reorderedFields = append(reorderedFields, stateField)
+		}
+	}
+
+	return reorderedFields
 }
 
 // Support import of Secret Resources via ID
