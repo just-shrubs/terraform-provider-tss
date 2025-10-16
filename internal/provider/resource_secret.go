@@ -1342,6 +1342,12 @@ func (m sshKeyFieldPlanModifier) PlanModifyString(ctx context.Context, req planm
 		return
 	}
 
+	if !req.StateValue.IsNull() && req.StateValue.ValueString() != "" {
+		tflog.Trace(ctx, "Preserving existing value from state (import or update)")
+		resp.PlanValue = req.StateValue
+		return
+	}
+
 	// For creation with potentially computed values
 	if req.State.Raw.IsNull() && (req.PlanValue.IsNull() || req.PlanValue.ValueString() == "") {
 		// Determine if this value should be computed by SSH key generation
@@ -1429,18 +1435,20 @@ func (m passwordFieldPlanModifier) PlanModifyString(ctx context.Context, req pla
 		return
 	}
 
+	if !req.StateValue.IsNull() && req.StateValue.ValueString() != "" {
+		if req.ConfigValue.IsNull() || req.ConfigValue.ValueString() == "" {
+			tflog.Debug(ctx, "Preserving existing password from state (import or update)")
+			resp.PlanValue = req.StateValue
+			return
+		}
+	}
+
 	if req.State.Raw.IsNull() && (req.PlanValue.IsNull() || req.PlanValue.ValueString() == "") {
 		if shouldComputePasswordValue(req) {
 			tflog.Debug(ctx, "Marking password field as computed for generation")
 			resp.PlanValue = types.StringUnknown()
 			return
 		}
-	}
-
-	if !req.State.Raw.IsNull() && (req.PlanValue.IsNull() || req.PlanValue.ValueString() == "") {
-		tflog.Debug(ctx, "Preserving existing password value during update")
-		resp.PlanValue = req.StateValue
-		return
 	}
 
 	resp.PlanValue = req.PlanValue
