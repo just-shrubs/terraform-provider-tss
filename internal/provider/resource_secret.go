@@ -212,9 +212,9 @@ func (r *TssSecretResource) Schema(ctx context.Context, req resource.SchemaReque
 							Sensitive:   true,
 							Description: "The value of the field. For SSH key generation, this will be computed by the server.",
 							PlanModifiers: []planmodifier.String{
+								stringplanmodifier.UseStateForUnknown(),
 								sshKeyFieldPlanModifier{},
 								passwordFieldPlanModifier{},
-								stringplanmodifier.UseStateForUnknown(),
 							},
 						},
 						"itemid": schema.Int64Attribute{
