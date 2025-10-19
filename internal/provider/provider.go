@@ -7,6 +7,7 @@ import (
 	"github.com/DelineaXPM/tss-sdk-go/v2/server"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/ephemeral"
+	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/provider"
 	"github.com/hashicorp/terraform-plugin-framework/provider/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
@@ -76,6 +77,47 @@ func (p *TssProvider) Schema(ctx context.Context, req provider.SchemaRequest, re
 func (p *TssProvider) Configure(ctx context.Context, req provider.ConfigureRequest, resp *provider.ConfigureResponse) {
 	tflog.Info(ctx, "Configuring TSS provider")
 
+	var data TssProviderModel
+
+	// Read configuration values into the config struct
+	diags := req.Config.Get(ctx, &data)
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		tflog.Error(ctx, "Failed to read provider configuration", map[string]interface{}{
+			"error": resp.Diagnostics.Errors(),
+		})
+		return
+	}
+
+	// Check configuration data provided are known values.
+	if data.ServerURL.IsUnknown() {
+		resp.Diagnostics.AddAttributeError(
+			path.Root("server_url"),
+			"Unknown TSS API Server URL",
+			"The provider cannot create the TSS API client as there is an unknown configuration value for the TSS API Server URL. "+
+				"Either target apply the source of the value first, set the value statically in the configuration, or use the TSS_SERVER_URL environment variable.",
+		)
+	}
+
+	if data.Username.IsUnknown() {
+		resp.Diagnostics.AddAttributeError(
+			path.Root("username"),
+			"Unknown TSS API Username",
+			"The provider cannot create the TSS API client as there is an unknown configuration value for the TSS API Username. "+
+				"Either target apply the source of the value first, set the value statically in the configuration, or use the TSS_USER environment variable.",
+		)
+	}
+
+	if data.Username.IsUnknown() {
+		resp.Diagnostics.AddAttributeError(
+			path.Root("password"),
+			"Unknown TSS API Password",
+			"The provider cannot create the TSS API client as there is an unknown configuration value for the TSS API Password. "+
+				"Either target apply the source of the value first, set the value statically in the configuration, or use the TSS_PASSWORD environment variable.",
+		)
+	}
+
+	// Default values to environment variables, but override with provider configuration values if set.
 	serverUrl := os.Getenv("TSS_SERVER_URL")
 	username := os.Getenv("TSS_USER")
 	password := os.Getenv("TSS_PASSWORD")
@@ -86,27 +128,6 @@ func (p *TssProvider) Configure(ctx context.Context, req provider.ConfigureReque
 		"has_username":   username != "",
 		"has_password":   password != "",
 		"has_domain":     domain != "",
-	})
-
-	var data TssProviderModel
-
-	// Read configuration values into the config struct
-	resp.Diagnostics.Append(req.Config.Get(ctx, &data)...)
-	if resp.Diagnostics.HasError() {
-		tflog.Error(ctx, "Failed to read provider configuration", map[string]interface{}{
-			"error": resp.Diagnostics.Errors(),
-		})
-		resp.Diagnostics.AddError(
-			"Configuration Error",
-			"Failed to read provider configuration",
-		)
-		return
-	}
-
-	// Log the configuration values
-	tflog.Info(ctx, "Provider configuration values retrieved", map[string]interface{}{
-		"server_url": data.ServerURL.ValueString(),
-		"username":   data.Username.ValueString(),
 	})
 
 	// Check configuration data, which should take precedence over environment variable data, if found.
@@ -127,37 +148,48 @@ func (p *TssProvider) Configure(ctx context.Context, req provider.ConfigureReque
 		domain = data.Domain.ValueString()
 	}
 
+	// Log the configuration values
+	tflog.Info(ctx, "Provider configuration values retrieved", map[string]interface{}{
+		"server_url": data.ServerURL.ValueString(),
+		"username":   data.Username.ValueString(),
+	})
+
+	// If any of the expected configuration values are missing, return errors with provider-specific guidance
 	if serverUrl == "" {
 		tflog.Error(ctx, "Missing server URL configuration")
-		resp.Diagnostics.AddError(
+		resp.Diagnostics.AddAttributeError(
+			path.Root("server_url"),
 			"Missing Server URL Configuration",
 			"While configuring the provider, the Server URL was not found in "+
 				"the TSS_SERVER_URL environment variable or provider "+
 				"configuration block server_url attribute.",
 		)
-		// Not returning early allows the logic to collect all errors.
 	}
 
 	if username == "" {
 		tflog.Error(ctx, "Missing username configuration")
-		resp.Diagnostics.AddError(
+		resp.Diagnostics.AddAttributeError(
+			path.Root("username"),
 			"Missing Username Configuration",
 			"While configuring the provider, the username was not found in "+
 				"the TSS_USERNAME environment variable or provider "+
 				"configuration block username attribute.",
 		)
-		// Not returning early allows the logic to collect all errors.
 	}
 
 	if password == "" {
 		tflog.Error(ctx, "Missing password configuration")
-		resp.Diagnostics.AddError(
+		resp.Diagnostics.AddAttributeError(
+			path.Root("password"),
 			"Missing Password Configuration",
 			"While configuring the provider, the password was not found in "+
 				"the TSS_PASSWORD environment variable or provider "+
 				"configuration block password attribute.",
 		)
-		// Not returning early allows the logic to collect all errors.
+	}
+
+	if resp.Diagnostics.HasError() {
+		return
 	}
 
 	// Create the server configuration
@@ -185,8 +217,10 @@ func (p *TssProvider) Configure(ctx context.Context, req provider.ConfigureReque
 			"server_url": serverUrl,
 		})
 		resp.Diagnostics.AddError(
-			"An unexpected error occurred when creating the tss client",
-			"Error: "+err.Error(),
+			"Unable to create TSS API Client",
+			"An unexpected error occurred when creating the TSS API client."+
+				"If the error is not clear, please contact the provider developers.\n\n"+
+				"TSS Client Error: "+err.Error(),
 		)
 		return
 	}
