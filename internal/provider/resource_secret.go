@@ -105,15 +105,15 @@ func (r *TssSecretResource) Schema(ctx context.Context, req resource.SchemaReque
 				Required:    true,
 				Description: "The name of the secret.",
 			},
-			"folderid": schema.StringAttribute{ // Changed to string for backward compatibility
+			"folderid": schema.StringAttribute{
 				Required:    true,
 				Description: "The folder ID of the secret.",
 			},
-			"siteid": schema.StringAttribute{ // Changed to string for backward compatibility
+			"siteid": schema.StringAttribute{
 				Required:    true,
 				Description: "The site ID where the secret will be created.",
 			},
-			"secrettemplateid": schema.StringAttribute{ // Changed to string for backward compatibility
+			"secrettemplateid": schema.StringAttribute{
 				Required:    true,
 				Description: "The template ID in which the secret will be created.",
 			},
@@ -210,11 +210,9 @@ func (r *TssSecretResource) Schema(ctx context.Context, req resource.SchemaReque
 							Optional:    true,
 							Computed:    true,
 							Sensitive:   true,
-							Description: "The value of the field. For SSH key generation, this will be computed by the server.",
+							Description: "The value of the field. For SSH key generation and password fields, this will be computed by the server.",
 							PlanModifiers: []planmodifier.String{
 								stringplanmodifier.UseStateForUnknown(),
-								sshKeyFieldPlanModifier{},
-								passwordFieldPlanModifier{},
 							},
 						},
 						"itemid": schema.Int64Attribute{
@@ -342,7 +340,7 @@ func (r *TssSecretResource) Create(ctx context.Context, req resource.CreateReque
 		return
 	}
 
-	// Get the secret data
+	// Get the secret data and generate passwords for empty password fields
 	tflog.Debug(ctx, "Preparing secret data for creation")
 	newSecret, err := r.generatePassword(ctx, &plan, r.client)
 	if err != nil {
@@ -380,7 +378,7 @@ func (r *TssSecretResource) Create(ctx context.Context, req resource.CreateReque
 		"name": createdSecret.Name,
 	})
 
-	// Refresh state - let Terraform accept the computed values from the server
+	// Refresh state - read back from server to get all computed values
 	tflog.Debug(ctx, "Refreshing state with created secret data")
 	newState, readDiags := r.readSecretByID(ctx, stringCreatedSecret)
 	resp.Diagnostics.Append(readDiags...)
@@ -461,6 +459,9 @@ func (r *TssSecretResource) Read(ctx context.Context, req resource.ReadRequest, 
 		"name": state.Name.ValueString(),
 	})
 
+	// Store the original field order from the current state
+	originalFields := state.Fields
+
 	// Ensure the client configuration is set
 	if r.client == nil {
 		tflog.Error(ctx, "TSS client is not configured")
@@ -472,7 +473,7 @@ func (r *TssSecretResource) Read(ctx context.Context, req resource.ReadRequest, 
 		"id": secretID,
 	})
 
-	// Retrieve the secret
+	// Retrieve the secret from the API
 	newState, readDiags := r.readSecretByID(ctx, state.ID.ValueString())
 	resp.Diagnostics.Append(readDiags...)
 	if resp.Diagnostics.HasError() {
@@ -490,7 +491,7 @@ func (r *TssSecretResource) Read(ctx context.Context, req resource.ReadRequest, 
 	})
 
 	tflog.Debug(ctx, "Reordering fields to match original state order")
-	newState.Fields = r.reorderFieldsToMatchPlan(ctx, state.Fields, newState.Fields)
+	newState.Fields = r.reorderFieldsToMatchPlan(ctx, originalFields, newState.Fields)
 
 	// Preserve the SSH key args from the current state since the server doesn't return them
 	if state.SshKeyArgs != nil {
@@ -634,7 +635,7 @@ func (r *TssSecretResource) Update(ctx context.Context, req resource.UpdateReque
 							if planField.ItemValue.IsNull() || planField.ItemValue.ValueString() == "" {
 								// Plan is not updating this field, preserve state
 								updatedSecret.Fields[i].ItemValue = stateField.ItemValue.ValueString()
-								tflog.Trace(ctx, "Preserving SSH field value", map[string]interface{}{
+								tflog.Trace(ctx, "Preserving SSH/password field value", map[string]interface{}{
 									"field": fieldName,
 								})
 							} else if !isPasswordField || planField.ItemValue.ValueString() != "" {
@@ -650,7 +651,7 @@ func (r *TssSecretResource) Update(ctx context.Context, req resource.UpdateReque
 					if !fieldFound {
 						// Field not found in plan, preserve state value
 						updatedSecret.Fields[i].ItemValue = stateField.ItemValue.ValueString()
-						tflog.Trace(ctx, "Preserving SSH field value (not in plan)", map[string]interface{}{
+						tflog.Trace(ctx, "Preserving SSH/password field value (not in plan)", map[string]interface{}{
 							"field": fieldName,
 						})
 					}
@@ -1045,7 +1046,7 @@ func (r *TssSecretResource) getSecretData(ctx context.Context, state *SecretReso
 
 		for _, record := range template.Fields {
 			if strings.EqualFold(record.Name, fieldName) || strings.EqualFold(record.FieldSlugName, fieldName) {
-				templateField = record // Not &record, just record
+				templateField = record
 				foundField = true
 				tflog.Trace(ctx, "Matched field with template", map[string]interface{}{
 					"field":             fieldName,
@@ -1315,162 +1316,4 @@ func flattenSecret(secret *server.Secret) (*SecretResourceState, error) {
 	})
 
 	return state, nil
-}
-
-// sshKeyFieldPlanModifier is a custom plan modifier for SSH key fields
-type sshKeyFieldPlanModifier struct{}
-
-func (m sshKeyFieldPlanModifier) Description(ctx context.Context) string {
-	return "If SSH key generation is enabled and the value is empty, mark as unknown so it can be computed."
-}
-
-func (m sshKeyFieldPlanModifier) MarkdownDescription(ctx context.Context) string {
-	return "If SSH key generation is enabled and the value is empty, mark as unknown so it can be computed."
-}
-
-func (m sshKeyFieldPlanModifier) PlanModifyString(ctx context.Context, req planmodifier.StringRequest, resp *planmodifier.StringResponse) {
-	// Log the plan values for debugging
-	tflog.Trace(ctx, "Running SSH key field plan modifier")
-
-	// If user explicitly set a value (including empty string) in the config, respect it
-	if !req.ConfigValue.IsNull() {
-		tflog.Trace(ctx, "Using explicit config value for field")
-		resp.PlanValue = req.ConfigValue
-		return
-	}
-
-	if !req.StateValue.IsNull() && req.StateValue.ValueString() != "" {
-		tflog.Trace(ctx, "Preserving existing value from state (import or update)")
-		resp.PlanValue = req.StateValue
-		return
-	}
-
-	// For creation with potentially computed values
-	if req.State.Raw.IsNull() && (req.PlanValue.IsNull() || req.PlanValue.ValueString() == "") {
-		// Determine if this value should be computed by SSH key generation
-		if shouldComputeSshKeyValue(req) {
-			tflog.Debug(ctx, "Marking field as computed for SSH key generation")
-			resp.PlanValue = types.StringUnknown()
-			return
-		}
-	}
-
-	// For null values in the plan, convert to empty string for consistency
-	if req.PlanValue.IsNull() {
-		tflog.Trace(ctx, "Converting null plan value to empty string")
-		resp.PlanValue = types.StringValue("")
-		return
-	}
-
-	// Otherwise, use the planned value as is
-	resp.PlanValue = req.PlanValue
-}
-
-// Helper function to determine if a field value should be computed by SSH key generation
-func shouldComputeSshKeyValue(req planmodifier.StringRequest) bool {
-	ctx := context.Background()
-	// Only mark values as computed during creation for SSH key fields when SSH key generation is enabled
-
-	// Check if this is a create operation (state is null)
-	if !req.State.Raw.IsNull() {
-		// This is an update, not a creation, so don't compute
-		tflog.Trace(ctx, "Not a create operation, won't compute SSH key value")
-		return false
-	}
-
-	// Check if the user explicitly set an empty string in the config
-	// If they did, we should respect that and not compute a value
-	if req.ConfigValue.IsNull() == false && req.ConfigValue.ValueString() == "" {
-		// User explicitly set an empty string, preserve it
-		tflog.Trace(ctx, "User explicitly set empty string, preserving it")
-		return false
-	}
-
-	// If we've reached here, it's a create operation and the field might need to be computed
-
-	// Check if the path contains a field reference
-	pathSteps := req.Path.Steps()
-	if len(pathSteps) < 3 {
-		return false
-	}
-
-	// Check if this is the "itemvalue" attribute within a "fields" block
-	if pathSteps[0].String() != "fields" || pathSteps[len(pathSteps)-1].String() != "itemvalue" {
-		return false
-	}
-
-	// At this point, we would ideally check:
-	// 1. If this field is an SSH key field (by name)
-	// 2. If SSH key generation is enabled in the plan
-	//
-	// However, without easy access to the field name here,
-	// and since we don't have access to other parts of the plan,
-	// we'll assume any null/empty field during create could be computed
-
-	// For create operations with empty values that haven't been explicitly set,
-	// mark as computed
-	return req.PlanValue.ValueString() == ""
-}
-
-// passwordFieldPlanModifier is a custom plan modifier for password fields
-type passwordFieldPlanModifier struct{}
-
-func (m passwordFieldPlanModifier) Description(ctx context.Context) string {
-	return "If the field is a password and no value is provided, mark as unknown so it can be computed by the server."
-}
-
-func (m passwordFieldPlanModifier) MarkdownDescription(ctx context.Context) string {
-	return "If the field is a password and no value is provided, mark as unknown so it can be computed by the server."
-}
-
-func (m passwordFieldPlanModifier) PlanModifyString(ctx context.Context, req planmodifier.StringRequest, resp *planmodifier.StringResponse) {
-	tflog.Trace(ctx, "Running password field plan modifier")
-
-	if !req.ConfigValue.IsNull() && req.ConfigValue.ValueString() != "" {
-		tflog.Debug(ctx, "Using explicit config value for password field")
-		resp.PlanValue = req.ConfigValue
-		return
-	}
-
-	isImport := !req.State.Raw.IsNull() && !req.StateValue.IsNull() && req.ConfigValue.IsNull()
-
-	if isImport {
-		tflog.Debug(ctx, "Import detected, using state value for password field")
-		resp.PlanValue = req.StateValue
-		return
-	}
-
-	if !req.StateValue.IsNull() && req.StateValue.ValueString() != "" {
-		if req.ConfigValue.IsNull() || req.ConfigValue.ValueString() == "" {
-			tflog.Debug(ctx, "Preserving existing password from state (update)")
-			resp.PlanValue = req.StateValue
-			return
-		}
-	}
-
-	if req.State.Raw.IsNull() && (req.PlanValue.IsNull() || req.PlanValue.ValueString() == "") {
-		if shouldComputePasswordValue(req) {
-			tflog.Debug(ctx, "Marking password field as computed for generation")
-			resp.PlanValue = types.StringUnknown()
-			return
-		}
-	}
-
-	resp.PlanValue = req.PlanValue
-}
-
-func shouldComputePasswordValue(req planmodifier.StringRequest) bool {
-	ctx := context.Background()
-
-	if !req.State.Raw.IsNull() {
-		tflog.Trace(ctx, "Not a create operation, won't compute password value")
-		return false
-	}
-
-	if req.ConfigValue.IsNull() == false && req.ConfigValue.ValueString() == "" {
-		tflog.Trace(ctx, "User explicitly set empty password, not generating")
-		return false
-	}
-
-	return true
 }

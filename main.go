@@ -54,7 +54,7 @@ func main() {
 
 	opts := providerserver.ServeOpts{
 		// TODO: Update this string with the published name of your provider.
-		Address: "github.com/just_shrubs/etcdv2",
+		Address: "github.com/just_shrubs/terraform-provider-tss",
 		Debug:   debug,
 	}
 
