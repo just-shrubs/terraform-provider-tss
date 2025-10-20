@@ -461,9 +461,6 @@ func (r *TssSecretResource) Read(ctx context.Context, req resource.ReadRequest, 
 		"name": state.Name.ValueString(),
 	})
 
-	// Store the original field order from the current state
-	originalFields := state.Fields
-
 	// Ensure the client configuration is set
 	if r.client == nil {
 		tflog.Error(ctx, "TSS client is not configured")
@@ -493,7 +490,7 @@ func (r *TssSecretResource) Read(ctx context.Context, req resource.ReadRequest, 
 	})
 
 	tflog.Debug(ctx, "Reordering fields to match original state order")
-	newState.Fields = r.reorderFieldsToMatchPlan(ctx, originalFields, newState.Fields)
+	newState.Fields = r.reorderFieldsToMatchPlan(ctx, state.Fields, newState.Fields)
 
 	// Preserve the SSH key args from the current state since the server doesn't return them
 	if state.SshKeyArgs != nil {
@@ -1435,9 +1432,17 @@ func (m passwordFieldPlanModifier) PlanModifyString(ctx context.Context, req pla
 		return
 	}
 
+	isImport := !req.State.Raw.IsNull() && !req.StateValue.IsNull() && req.ConfigValue.IsNull()
+
+	if isImport {
+		tflog.Debug(ctx, "Import detected, using state value for password field")
+		resp.PlanValue = req.StateValue
+		return
+	}
+
 	if !req.StateValue.IsNull() && req.StateValue.ValueString() != "" {
 		if req.ConfigValue.IsNull() || req.ConfigValue.ValueString() == "" {
-			tflog.Debug(ctx, "Preserving existing password from state (import or update)")
+			tflog.Debug(ctx, "Preserving existing password from state (update)")
 			resp.PlanValue = req.StateValue
 			return
 		}
